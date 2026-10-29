@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BallTracker, type BallObs } from './ballTracker';
-import { addScore, amendScore, boxScore, endMatch, newMatch, recordAttempt, tick, type MatchConfig, type MatchState } from './matchRules';
+import { addScore, amendScore, boxScore, endMatch, newMatch, periodScores, recordAttempt, startNextPeriod, tick, timeLeftInPeriod, type MatchConfig, type MatchState } from './matchRules';
 import { findColorBlob, isTrackableColor } from './ballColor';
 import { BasketWatcher, GoalWatcher, judgeBasket, segmentEntry } from './shotWatcher';
 import { attributeShot, classifyColor, rgbToLab } from './teamColors';
@@ -327,5 +327,45 @@ describe('match rules', () => {
 
   it('rejects invalid point values', () => {
     expect(() => addScore(newMatch(cfg()), { id: 1, team: 0, points: 0, label: '', source: 'camera' })).toThrow(RangeError);
+  });
+
+  describe('two halves', () => {
+    const halves = () => newMatch(cfg({ durationMs: 600_000, periods: 2 }));
+
+    it('stops the clock at half-time and waits for the second half', () => {
+      let s = tick(halves(), 299_000);
+      expect([s.period, s.atBreak, timeLeftInPeriod(s)]).toEqual([1, false, 1_000]);
+      s = tick(s, 5_000); // overshoot is clipped to the end of the half
+      expect(s).toMatchObject({ period: 1, atBreak: true, clockMs: 300_000, finished: false });
+      expect(tick(s, 60_000).clockMs).toBe(300_000); // clock frozen during the break
+    });
+
+    it('ignores scores during the break', () => {
+      const s = tick(halves(), 300_000);
+      expect(addScore(s, { id: 1, team: 0, points: 1, label: 'GOAL', source: 'camera' }).applied).toBe(false);
+    });
+
+    it('plays the second half and ends at full time', () => {
+      let s = goal(halves(), 1, 0);
+      s = startNextPeriod(tick(s, 300_000));
+      expect([s.period, s.atBreak, timeLeftInPeriod(s)]).toEqual([2, false, 300_000]);
+      s = goal(s, 2, 1);
+      s = goal(s, 3, 1);
+      s = tick(s, 300_000);
+      expect(s).toMatchObject({ finished: true, endReason: 'time', winner: 1 });
+      expect(periodScores(s, 1)).toEqual([1, 0]);
+      expect(periodScores(s, 2)).toEqual([0, 2]);
+      expect(s.events.map((e) => e.period)).toEqual([1, 2, 2]);
+    });
+
+    it('startNextPeriod does nothing outside a break', () => {
+      const s = halves();
+      expect(startNextPeriod(s)).toBe(s);
+    });
+
+    it('a single-period match has no break', () => {
+      const s = tick(newMatch(cfg({ durationMs: 600_000 })), 600_000);
+      expect(s).toMatchObject({ finished: true, atBreak: false, period: 1 });
+    });
   });
 });

@@ -15,7 +15,7 @@ import { loadHandLandmarker, monotonicClock } from '@/referee/vision';
 import { useWakeLock } from '@/referee/wakeLock';
 import { drawHands, observeHands } from './observe';
 import { RevealDetector, type RevealOutcome, type Side, type SideResult, type UnclearReason } from './revealDetector';
-import { applyBall, newMatch, type HandCricketState, type PlayerIndex } from './rules';
+import { applyBall, ballsLeft, inningsStats, newMatch, type HandCricketState, type PlayerIndex } from './rules';
 
 const GAME = GAMES['hand-cricket'];
 type Phase = 'players' | 'camera' | 'match' | 'result';
@@ -40,6 +40,7 @@ export function HandCricketGame() {
   const [phase, setPhase] = useState<Phase>('players');
   const [names, setNames] = useState(() => loadNames(2));
   const [firstBatter, setFirstBatter] = useState<PlayerIndex>(0);
+  const [overs, setOvers] = useState<number | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus>('idle');
   const landmarker = useRef<HandLandmarker | null>(null);
   const [match, setMatch] = useState<HandCricketState | null>(null);
@@ -75,7 +76,7 @@ export function HandCricketGame() {
           scores={[0, 1].map((i) => ({ name: match.players[i], score: String(match.scores[i]), winner: match.result!.winner === i }))}
           summary={<MatchSummary match={match} firstBatter={first} />}
           onReplay={() => {
-            setMatch(newMatch(players, firstBatter === 0 ? 1 : 0));
+            setMatch(newMatch(players, firstBatter === 0 ? 1 : 0, overs));
             setFirstBatter((f) => (f === 0 ? 1 : 0));
             setPhase('match');
           }}
@@ -123,6 +124,17 @@ export function HandCricketGame() {
                 </button>
               </div>
             </fieldset>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-sm font-semibold text-ink/75">Overs per innings</legend>
+              <div className="flex flex-wrap gap-2">
+                {[null, 1, 2, 3, 5].map((o) => (
+                  <button key={String(o)} className={overs === o ? 'btn-primary min-h-11 px-4' : 'btn-secondary min-h-11 px-4'} onClick={() => setOvers(o)}>
+                    {o === null ? 'Until out' : `${o} over${o === 1 ? '' : 's'}`}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink/60">{overs ? `Each innings ends after ${overs * 6} balls or an OUT, whichever comes first.` : 'Each innings lasts until the batter is out.'}</p>
+            </fieldset>
           </section>
           <section className="card flex flex-col gap-3 p-5">
             <h2 className="font-display text-xl font-semibold">How to play</h2>
@@ -161,7 +173,7 @@ export function HandCricketGame() {
           players={players}
           onStart={() => {
             announcer.unlock();
-            setMatch(newMatch(players, firstBatter));
+            setMatch(newMatch(players, firstBatter, overs));
             setPhase('match');
           }}
         />
@@ -309,7 +321,15 @@ function MatchScreen({
   const [banner, setBanner] = useState<Banner | null>(null);
   const [unclearStreak, setUnclearStreak] = useState(0);
   const [manualOpen, setManualOpen] = useState(false);
+  const [inningsBreak, setInningsBreak] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const manualId = useRef(1_000_000);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(id);
+  }, [toast]);
   const finished = !!match.result;
   useWakeLock(!paused && !finished);
 
@@ -341,6 +361,20 @@ function MatchScreen({
       announcer.chime();
       announcer.say(decision.matchOver ? `${decision.runs}. ${state.result?.text}` : `${decision.runs} run${decision.runs === 1 ? '' : 's'}`);
     }
+    if (decision.inningsEnded && !decision.matchOver) {
+      if (!decision.out) announcer.whistle('double');
+      setInningsBreak(true);
+      return;
+    }
+    // Overs warnings.
+    const left = ballsLeft(state);
+    if (!decision.matchOver && left !== null && state.ballsPerInnings! > 6 && left === 6) {
+      setToast('Last over!');
+      setTimeout(() => announcer.say('Last over'), 900);
+    } else if (!decision.matchOver && left === 1) {
+      setToast('Last ball!');
+      setTimeout(() => announcer.say('Last ball'), 900);
+    }
   };
 
   const handleOutcome = (o: RevealOutcome) => {
@@ -362,7 +396,7 @@ function MatchScreen({
 
   useFrameLoop(
     camera.videoRef,
-    !paused && !finished && !manualOpen,
+    !paused && !finished && !manualOpen && !inningsBreak,
     (video) => {
       const res = landmarker.detectForVideo(video, clock.current());
       const { obs, hands } = observeHands(res, camera.mirrored, performance.now());
@@ -386,6 +420,8 @@ function MatchScreen({
   const batter = match.players[match.batting];
   const bowler = match.players[match.batting === 0 ? 1 : 0];
   const inningsBalls = match.balls.filter((b) => b.innings === match.innings);
+  const left = ballsLeft(match);
+  const overText = `${Math.floor(inningsBalls.length / 6)}.${inningsBalls.length % 6}`;
 
   const prompt =
     hud.phase === 'countdown'
@@ -411,6 +447,16 @@ function MatchScreen({
             {match.scores[match.batting]}
             {match.target !== null && <span className="ml-2 text-base font-medium text-cream/75">/ target {match.target}</span>}
           </div>
+          {(left !== null || match.target !== null) && (
+            <div className="text-xs text-cream/70 tabular-nums">
+              {left !== null && (
+                <span className={`rounded-full px-2 py-0.5 ${left <= 1 ? 'bg-alert text-cream' : left <= 6 ? 'bg-dusty text-ink' : 'bg-cream/10'}`}>
+                  Overs {overText} · {left} ball{left === 1 ? '' : 's'} left
+                </span>
+              )}
+              {match.target !== null && <span className="ml-2">needs {Math.max(0, match.target - match.scores[match.batting])}</span>}
+            </div>
+          )}
         </div>
         <button
           className="grid size-11 place-items-center rounded-full bg-cream/10"
@@ -450,6 +496,11 @@ function MatchScreen({
             <button className="btn-on-dark" onClick={togglePause}>
               <Play className="size-5" /> Resume
             </button>
+          </div>
+        )}
+        {toast && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center" role="status">
+            <div className="rounded-full bg-dusty px-4 py-2 font-semibold text-ink shadow-lg">{toast}</div>
           </div>
         )}
       </CameraStage>
@@ -499,6 +550,18 @@ function MatchScreen({
         </div>
       </div>
 
+      {inningsBreak && (
+        <InningsBreak
+          match={match}
+          onStart={() => {
+            detector.current.reset();
+            setInningsBreak(false);
+            setBanner({ tone: 'info', text: `Second innings — ${match.players[match.batting]} needs ${match.target} to win.` });
+            announcer.whistle('short');
+          }}
+        />
+      )}
+
       {manualOpen && (
         <ManualEntry
           batter={batter}
@@ -518,7 +581,65 @@ function MatchScreen({
   );
 }
 
-function ManualEntry({ batter, bowler, onSubmit, onCancel }: { batter: string; bowler: string; onSubmit: (bat: number, bowl: number) => void; onCancel: () => void }) {
+/** Between innings: the first-innings card, the target, and the swap of roles. */
+function InningsBreak({ match, onStart }: { match: HandCricketState; onStart: () => void }) {
+  const first = inningsStats(match, 1)!;
+  const chaser = match.players[match.batting];
+  const setter = match.players[first.batter];
+  const limit = match.ballsPerInnings;
+  const stats: [string, string | number][] = [
+    ['Runs', first.runs],
+    ['Balls', first.balls],
+    ['Sixes', first.sixes],
+    ['Fours', first.fours],
+    ['Run rate', first.runRate.toFixed(1)],
+  ];
+  return (
+    <div className="absolute inset-0 z-50 overflow-y-auto bg-ink/95 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]" role="dialog" aria-modal="true" aria-label="Innings break">
+      <div className="mx-auto flex max-w-md flex-col gap-5 text-center">
+        <div>
+          <div className="text-sm font-semibold tracking-widest text-dusty uppercase">Innings break</div>
+          <div className="mt-2 font-display text-3xl font-bold">
+            {setter} made {first.runs}
+          </div>
+          <div className="text-cream/70">{first.out ? 'Out' : 'Not out — overs complete'} after {first.balls} ball{first.balls === 1 ? '' : 's'}</div>
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {stats.map(([label, value]) => (
+            <div key={label} className="rounded-2xl bg-cream/10 px-1 py-3">
+              <div className="font-display text-2xl font-bold tabular-nums">{value}</div>
+              <div className="text-[11px] text-cream/60">{label}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap justify-center gap-1">
+          {match.balls
+            .filter((b) => b.innings === 1)
+            .map((b) => (
+              <span key={b.eventId} className={`grid size-7 place-items-center rounded-full text-xs font-bold ${b.out ? 'bg-dusty text-ink' : 'bg-cream/15'}`}>
+                {b.out ? 'W' : b.runs}
+              </span>
+            ))}
+        </div>
+        <div className="rounded-2xl bg-teal p-4">
+          <div className="text-sm text-cream/80">Target</div>
+          <div className="font-display text-4xl font-bold tabular-nums">{match.target}</div>
+          <div className="text-sm text-cream/90">
+            {chaser} needs {match.target} {limit ? `from ${limit} balls (${((match.target! / limit) * 6).toFixed(1)} an over)` : 'before getting out'}.
+          </div>
+        </div>
+        <p className="text-sm text-cream/80">
+          Swap roles: <strong>{chaser}</strong> bats, <strong>{setter}</strong> bowls. Stay on the same sides of the picture.
+        </p>
+        <button className="btn-on-dark w-full text-lg" onClick={onStart}>
+          <Play className="size-5" /> Start second innings
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ManualEntry({ batter, bowler, onSubmit, onCancel }:{ batter: string; bowler: string; onSubmit: (bat: number, bowl: number) => void; onCancel: () => void }) {
   const [bat, setBat] = useState<number | null>(null);
   const [bowl, setBowl] = useState<number | null>(null);
   return (

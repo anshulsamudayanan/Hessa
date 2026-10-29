@@ -1,4 +1,4 @@
-import { AlertTriangle, Camera as CameraIcon, CheckCircle2, Eye, Loader2, RefreshCw, SwitchCamera, Sun } from 'lucide-react';
+import { AlertTriangle, Camera as CameraIcon, CheckCircle2, Eye, FlipHorizontal2, Loader2, RefreshCw, SwitchCamera, Sun, Video } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { GameInfo } from '@/data/catalog';
 import type { Camera } from '@/referee/camera';
@@ -112,6 +112,7 @@ export function CameraSetup({
               </button>
             )}
           </CameraStage>
+          <CameraPicker camera={camera} />
           <div className="flex flex-wrap gap-2 text-sm">
             <StatusChip ok={quality?.verdict === 'ok'} icon={<Sun className="size-4" />}>
               {quality ? LIGHT_ADVICE[quality.verdict] : 'Checking light…'}
@@ -145,6 +146,38 @@ export function CameraSetup({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Choose which camera to use (built-in, USB webcam, phone front/back) and whether to mirror it. */
+function CameraPicker({ camera }: { camera: Camera }) {
+  return (
+    <div className="card flex flex-wrap items-center gap-3 px-4 py-3">
+      <label className="flex min-w-0 flex-1 items-center gap-2">
+        <Video className="size-5 shrink-0 text-teal" />
+        <span className="sr-only">Camera</span>
+        {camera.devices.length > 1 ? (
+          <select
+            className="field min-h-11 min-w-0 flex-1 py-2"
+            value={camera.deviceId ?? ''}
+            onChange={(e) => camera.selectDevice(e.target.value)}
+            disabled={camera.status === 'starting'}
+          >
+            {camera.devices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="truncate text-sm text-ink/75">{camera.devices[0]?.label ?? 'Camera'} (only camera found)</span>
+        )}
+      </label>
+      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
+        <input type="checkbox" className="size-5 accent-teal" checked={camera.mirrored} onChange={(e) => camera.setMirrored(e.target.checked)} />
+        <FlipHorizontal2 className="size-4" /> Mirror
+      </label>
     </div>
   );
 }

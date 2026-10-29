@@ -1,8 +1,8 @@
 /**
  * Rules engine for refereed two-sided matches (football, basketball). Deterministic:
  * it only records score events the referee (or players, marked as such) report,
- * keeps the clock, ends the match on time or target, and computes the box score
- * and MVP. Team A = 0, Team B = 1.
+ * keeps the clock (in one or two halves, stopping at half-time), ends the match
+ * on time or target, and computes the box score and MVP. Team A = 0, Team B = 1.
  */
 
 export type TeamIndex = 0 | 1;
@@ -21,6 +21,8 @@ export interface ScoreEvent {
   points: number;
   label: string;
   atMs: number;
+  /** 1 = first half (or the only period), 2 = second half. */
+  period: number;
   source: ScoreSource;
 }
 
@@ -28,6 +30,7 @@ export interface AttemptEvent {
   id: number;
   team: TeamIndex | null;
   made: boolean;
+  period?: number;
 }
 
 export interface MatchConfig {
@@ -35,10 +38,17 @@ export interface MatchConfig {
   durationMs: number;
   /** First to this many points wins (basketball street rules). null = time only. */
   targetPoints: number | null;
+  /** 1 = one period, 2 = two halves with a half-time break. Defaults to 1. */
+  periods?: number;
 }
 
 export interface MatchState extends MatchConfig {
+  periods: number;
+  /** Total elapsed playing time across periods. */
   clockMs: number;
+  period: number;
+  /** Clock stopped between halves, waiting for the second half to start. */
+  atBreak: boolean;
   events: ScoreEvent[];
   attempts: AttemptEvent[];
   scores: [number, number];
@@ -49,7 +59,18 @@ export interface MatchState extends MatchConfig {
 }
 
 export function newMatch(cfg: MatchConfig): MatchState {
-  return { ...cfg, clockMs: 0, events: [], attempts: [], scores: [0, 0], finished: false, winner: null, endReason: null };
+  const periods = Math.max(1, Math.round(cfg.periods ?? 1));
+  return { ...cfg, periods, clockMs: 0, period: 1, atBreak: false, events: [], attempts: [], scores: [0, 0], finished: false, winner: null, endReason: null };
+}
+
+export const periodLength = (s: Pick<MatchState, 'durationMs' | 'periods'>) => s.durationMs / s.periods;
+
+/** Time left in the current period (half), in ms. */
+export const timeLeftInPeriod = (s: MatchState) => Math.max(0, periodLength(s) * s.period - s.clockMs);
+
+/** Points per team in a given period. */
+export function periodScores(s: MatchState, period: number): [number, number] {
+  return totals(s.events.filter((e) => e.period === period));
 }
 
 const totals = (events: ScoreEvent[]): [number, number] => [
@@ -67,10 +88,10 @@ export function addScore(
   state: MatchState,
   e: { id: number; team: TeamIndex; points: number; label: string; source: ScoreSource; scorer?: number | null },
 ): { state: MatchState; applied: boolean } {
-  if (state.finished || state.events.some((x) => x.id === e.id)) return { state, applied: false };
+  if (state.finished || state.atBreak || state.events.some((x) => x.id === e.id)) return { state, applied: false };
   if (!Number.isInteger(e.points) || e.points < 1) throw new RangeError('Points must be a positive integer');
   const soleScorer = state.teams[e.team].players.length === 1 ? 0 : null;
-  const event: ScoreEvent = { ...e, scorer: e.scorer ?? soleScorer, atMs: state.clockMs };
+  const event: ScoreEvent = { ...e, scorer: e.scorer ?? soleScorer, atMs: state.clockMs, period: state.period };
   const events = [...state.events, event];
   let next: MatchState = { ...state, events, scores: totals(events) };
   if (state.targetPoints !== null && next.scores[e.team] >= state.targetPoints) next = finish(next, 'target');
@@ -79,7 +100,7 @@ export function addScore(
 
 export function recordAttempt(state: MatchState, a: AttemptEvent): MatchState {
   if (state.finished || state.attempts.some((x) => x.id === a.id)) return state;
-  return { ...state, attempts: [...state.attempts, a] };
+  return { ...state, attempts: [...state.attempts, { ...a, period: state.period }] };
 }
 
 /** Correct the last call: credit a scorer, change the value, or disallow it. */
@@ -99,10 +120,18 @@ export function amendScore(state: MatchState, id: number, change: { scorer?: num
 }
 
 export function tick(state: MatchState, elapsedMs: number): MatchState {
-  if (state.finished) return state;
-  const clockMs = Math.min(state.durationMs, state.clockMs + elapsedMs);
+  if (state.finished || state.atBreak) return state;
+  const periodEnd = periodLength(state) * state.period;
+  const clockMs = Math.min(periodEnd, state.clockMs + elapsedMs);
   const next = { ...state, clockMs };
-  return clockMs >= state.durationMs ? finish(next, 'time') : next;
+  if (clockMs < periodEnd) return next;
+  return state.period < state.periods ? { ...next, atBreak: true } : finish(next, 'time');
+}
+
+/** Kick off the next half after the break. */
+export function startNextPeriod(state: MatchState): MatchState {
+  if (!state.atBreak || state.finished) return state;
+  return { ...state, atBreak: false, period: state.period + 1 };
 }
 
 export function endMatch(state: MatchState): MatchState {

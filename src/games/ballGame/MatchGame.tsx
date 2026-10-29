@@ -1,5 +1,5 @@
 import type { ObjectDetector } from '@mediapipe/tasks-vision';
-import { Ban, CircleDot, Flag as FlagIcon, Pause, Play, Plus, Shirt, Star, Volume2, VolumeX, X } from 'lucide-react';
+import { Ban, CircleDot, Flag as FlagIcon, Pause, Play, Plus, Shirt, Star, Timer, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CameraSetup, type ModelStatus } from '@/components/CameraSetup';
 import { CameraStage, prepareOverlay, type Overlay } from '@/components/CameraStage';
@@ -22,7 +22,11 @@ import {
   formatClock,
   newMatch,
   recordAttempt,
+  periodLength,
+  periodScores,
+  startNextPeriod,
   tick,
+  timeLeftInPeriod,
   type MatchConfig,
   type MatchState,
   type ScoreSource,
@@ -64,6 +68,10 @@ export interface MatchGameConfig {
   measureBallInRegions?: boolean;
   durations: number[]; // minutes
   defaultMinutes: number;
+  /** 1 = one period, 2 = two halves with a half-time break. */
+  defaultPeriods: number;
+  /** Football: teams swap ends at half-time (so goals flip sides). */
+  switchEndsAtHalfTime?: boolean;
   targets: (number | null)[];
   defaultTarget: number | null;
   points: number;
@@ -91,6 +99,7 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
     ];
   });
   const [minutes, setMinutes] = useState(config.defaultMinutes);
+  const [periods, setPeriods] = useState(config.defaultPeriods);
   const [target, setTarget] = useState<number | null>(config.defaultTarget);
   const [teamAAttacks, setTeamAAttacks] = useState<'left' | 'right'>('right');
   const [regions, setRegions] = useState<(Rect | null)[]>(() => config.regionLabels.map(() => null));
@@ -127,7 +136,7 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
 
   const matchConfig = (): MatchConfig => {
     const t = cleanTeams();
-    return { teams: [{ name: t[0].name, players: t[0].players }, { name: t[1].name, players: t[1].players }], durationMs: minutes * 60_000, targetPoints: target };
+    return { teams: [{ name: t[0].name, players: t[0].players }, { name: t[1].name, players: t[1].players }], durationMs: minutes * 60_000, targetPoints: target, periods };
   };
 
   if (phase === 'result' && match) {
@@ -190,6 +199,15 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
           <section className="card flex flex-col gap-4 p-5">
             <h2 className="font-display text-xl font-semibold">Match rules</h2>
             <Choice label="Match length" options={config.durations.map((m) => ({ value: m, label: `${m} min` }))} value={minutes} onChange={setMinutes} />
+            <Choice
+              label="Halves"
+              options={[
+                { value: 1, label: 'One period' },
+                { value: 2, label: `Two halves (${minutes / 2} min each)` },
+              ]}
+              value={periods}
+              onChange={setPeriods}
+            />
             {config.targets.length > 1 && (
               <Choice
                 label="Game ends early at"
@@ -576,23 +594,48 @@ function MatchScreen({
   const [pending, setPending] = useState<Pending | null>(null);
   const [lastId, setLastId] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [attacks, setAttacks] = useState(teamAAttacks); // flips when teams switch ends
   useWakeLock(!paused && !match.finished);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   const update = (s: MatchState) => {
     matchRef.current = s;
     setMatch(s);
   };
 
-  // Match clock: runs only while the referee is actively watching.
+  // Match clock: runs only while the referee is actively watching. Announces the
+  // last minute, beeps the last ten seconds, and blows for half-time / full time.
   useEffect(() => {
-    if (paused || pending || match.finished) return;
+    if (paused || pending || match.finished || match.atBreak) return;
     let last = performance.now();
     const id = setInterval(() => {
       const now = performance.now();
       const before = matchRef.current;
       const after = tick(before, now - last);
       last = now;
-      if (after !== before) update(after);
+      if (after === before) return;
+      update(after);
+      const leftBefore = timeLeftInPeriod(before);
+      const leftAfter = timeLeftInPeriod(after);
+      const finalPeriod = after.period === after.periods;
+      if (leftBefore > 60_000 && leftAfter <= 60_000 && after.durationMs / after.periods > 120_000) {
+        const msg = finalPeriod ? 'One minute left' : 'One minute to half-time';
+        setToast(msg);
+        announcer.say(msg);
+      }
+      const secBefore = Math.ceil(leftBefore / 1000);
+      const secAfter = Math.ceil(leftAfter / 1000);
+      if (secAfter < secBefore && secAfter <= 10 && secAfter > 0) announcer.beep(secAfter <= 3 ? 990 : 660, 0.08, 0.12);
+      if (after.atBreak && !before.atBreak) {
+        announcer.whistle('double');
+        announcer.say(`Half time. ${after.teams[0].name} ${after.scores[0]}, ${after.teams[1].name} ${after.scores[1]}`);
+      }
       if (after.finished && !before.finished) {
         announcer.whistle('double');
         announcer.say(`Full time. ${after.winner === null ? 'It’s a draw' : `${after.teams[after.winner].name} wins`}`);
@@ -600,7 +643,7 @@ function MatchScreen({
     }, 250);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused, pending, match.finished]);
+  }, [paused, pending, match.finished, match.atBreak]);
 
   useEffect(() => {
     if (!match.finished) return;
@@ -619,7 +662,7 @@ function MatchScreen({
     announcer.say(state.finished ? `${label}! ${name} wins!` : `${label}, ${name}. ${state.scores[0]} ${state.scores[1]}`);
   };
 
-  const teamForGoal = (goal: 'left' | 'right'): TeamIndex => (goal === teamAAttacks ? 0 : 1);
+  const teamForGoal = (goal: 'left' | 'right'): TeamIndex => (goal === attacks ? 0 : 1);
 
   const handleVerdict = (v: ShotVerdict) => {
     const shooter = shirts && v.startedAt !== undefined ? attributeShot(v.startedAt, trail.current, peopleFrames.current, shirts) : null;
@@ -648,7 +691,7 @@ function MatchScreen({
 
   useFrameLoop(
     camera.videoRef,
-    !paused && !pending && !match.finished,
+    !paused && !pending && !match.finished && !match.atBreak,
     (video, t) => {
       const { ball, fullFrame } = perception.current.process(video, t, camera.mirrored, clock.current());
       if (ball) trail.current = [...trail.current.filter((b) => t - b.t < 1500), ball];
@@ -675,7 +718,9 @@ function MatchScreen({
 
   const last = match.events.find((e) => e.id === lastId) ?? null;
   const lastTeam = last ? match.teams[last.team] : null;
-  const timeLeft = match.durationMs - match.clockMs;
+  const timeLeft = timeLeftInPeriod(match);
+  const periodLabel = match.periods === 2 ? (match.period === 1 ? '1st half' : '2nd half') : null;
+  const clockTone = timeLeft <= 10_000 ? 'bg-alert text-cream animate-pulse' : timeLeft <= 60_000 ? 'bg-dusty text-ink' : 'bg-cream/10 text-cream';
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-ink text-cream">
@@ -684,8 +729,10 @@ function MatchScreen({
           <X className="size-5" />
         </button>
         <div className="min-w-0 flex-1 text-center">
-          <div className="text-xs font-semibold tracking-wide text-cream/70 tabular-nums">
-            {formatClock(timeLeft)} left{match.targetPoints ? ` · first to ${match.targetPoints}` : ''}
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold tracking-wide text-cream/70">
+            {periodLabel && <span className="uppercase">{periodLabel}</span>}
+            <span className={`rounded-full px-2 py-0.5 font-display text-sm tabular-nums ${clockTone}`}>{formatClock(timeLeft)}</span>
+            {match.targetPoints && <span>first to {match.targetPoints}</span>}
           </div>
           <div className="flex items-center justify-center gap-3 font-display text-2xl font-bold tabular-nums">
             <TeamTag name={match.teams[0].name} css={shirtCss[0]} />
@@ -726,6 +773,19 @@ function MatchScreen({
                 <FlagIcon className="size-5" /> End match now
               </button>
             </div>
+          </div>
+        )}
+        {toast && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center" role="status">
+            <div className="flex items-center gap-2 rounded-full bg-dusty px-4 py-2 font-semibold text-ink shadow-lg">
+              <Timer className="size-4" /> {toast}
+            </div>
+          </div>
+        )}
+        {config.regionLabels.length === 2 && !paused && (
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-between text-xs font-semibold">
+            <span className="rounded-full bg-ink/70 px-2.5 py-1">← {match.teams[attacks === 'left' ? 0 : 1].name} scores here</span>
+            <span className="rounded-full bg-ink/70 px-2.5 py-1">{match.teams[attacks === 'right' ? 0 : 1].name} scores here →</span>
           </div>
         )}
       </CameraStage>
@@ -846,6 +906,128 @@ function MatchScreen({
           </button>
         )}
       </div>
+
+      {match.atBreak && (
+        <HalfTime
+          match={match}
+          config={config}
+          shirtCss={shirtCss}
+          attacks={attacks}
+          onStart={(switchEnds) => {
+            const next = switchEnds ? (attacks === 'left' ? 'right' : 'left') : attacks;
+            setAttacks(next);
+            resumeWatching();
+            setLastId(null);
+            setNotice(switchEnds ? `Second half — ends switched. ${match.teams[0].name} now scores in the ${next} goal.` : 'Second half — play on!');
+            update(startNextPeriod(matchRef.current));
+            announcer.whistle('short');
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Half-time break: the score, first-half stats, and the restart (with an ends switch for football). */
+function HalfTime({
+  match,
+  config,
+  shirtCss,
+  attacks,
+  onStart,
+}: {
+  match: MatchState;
+  config: MatchGameConfig;
+  shirtCss: (string | undefined)[];
+  attacks: 'left' | 'right';
+  onStart: (switchEnds: boolean) => void;
+}) {
+  const [switchEnds, setSwitchEnds] = useState(!!config.switchEndsAtHalfTime);
+  const box = boxScore(match);
+  const leaders = box.players.filter((p) => p.points > 0).slice(0, 3);
+  const players = match.events.filter((e) => e.source === 'players').length;
+  const basketball = config.regionLabels.length === 1;
+  const rows: { label: string; a: string | number; b: string | number }[] = [
+    { label: config.scoreWord === 'goal' ? 'Goals' : 'Points', a: match.scores[0], b: match.scores[1] },
+  ];
+  if (basketball) {
+    rows.push({ label: 'Baskets', a: match.events.filter((e) => e.team === 0).length, b: match.events.filter((e) => e.team === 1).length });
+    rows.push({ label: 'Shooting', a: `${box.attempts[0].made}/${box.attempts[0].total}`, b: `${box.attempts[1].made}/${box.attempts[1].total}` });
+  }
+  rows.push({
+    label: 'Players’ calls',
+    a: match.events.filter((e) => e.team === 0 && e.source === 'players').length,
+    b: match.events.filter((e) => e.team === 1 && e.source === 'players').length,
+  });
+
+  return (
+    <div className="absolute inset-0 z-50 overflow-y-auto bg-ink/95 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]" role="dialog" aria-modal="true" aria-label="Half-time">
+      <div className="mx-auto flex max-w-md flex-col gap-5">
+        <div className="text-center">
+          <div className="text-sm font-semibold tracking-widest text-dusty uppercase">Half-time</div>
+          <div className="mt-2 flex items-center justify-center gap-4 font-display text-5xl font-bold tabular-nums">
+            <TeamTag name={match.teams[0].name} css={shirtCss[0]} />
+            {match.scores[0]} – {match.scores[1]}
+            <TeamTag name={match.teams[1].name} css={shirtCss[1]} />
+          </div>
+        </div>
+
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-cream/60">
+              <th className="py-1 text-left font-semibold">{match.teams[0].name}</th>
+              <th className="py-1 font-semibold" />
+              <th className="py-1 text-right font-semibold">{match.teams[1].name}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className="border-t border-cream/10">
+                <td className="py-2 text-left font-display text-xl font-bold tabular-nums">{r.a}</td>
+                <td className="py-2 text-center text-cream/70">{r.label}</td>
+                <td className="py-2 text-right font-display text-xl font-bold tabular-nums">{r.b}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="rounded-2xl bg-cream/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Star className="size-4" /> Top scorers so far
+          </div>
+          {leaders.length ? (
+            <ol className="flex flex-col gap-1 text-sm">
+              {leaders.map((p, i) => (
+                <li key={p.team + p.name} className="flex justify-between">
+                  <span>
+                    {i + 1}. {p.name} <span className="text-cream/60">({match.teams[p.team].name})</span>
+                  </span>
+                  <span className="font-bold tabular-nums">
+                    {p.points} pt{p.points === 1 ? "" : "s"}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-cream/70">{match.events.length ? 'Scores not yet credited to players.' : 'No scores yet.'}</p>
+          )}
+          {players > 0 && <p className="mt-2 text-xs text-cream/60">{players} of {match.events.length} scores were players’ calls.</p>}
+        </div>
+
+        {config.regionLabels.length === 2 && (
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl bg-cream/10 px-4 py-3">
+            <input type="checkbox" className="size-5 accent-dusty" checked={switchEnds} onChange={(e) => setSwitchEnds(e.target.checked)} />
+            <span className="text-sm">
+              <strong>Teams switch ends.</strong> {match.teams[0].name} will score in the {switchEnds ? (attacks === 'left' ? 'right' : 'left') : attacks} goal.
+            </span>
+          </label>
+        )}
+
+        <button className="btn-on-dark w-full text-lg" onClick={() => onStart(switchEnds)}>
+          <Play className="size-5" /> Start second half
+        </button>
+        <p className="text-center text-xs text-cream/50">The clock is stopped. The camera stays on, so don’t move the phone.</p>
+      </div>
     </div>
   );
 }
@@ -909,6 +1091,29 @@ function MatchReport({ match, config }: { match: MatchState; config: MatchGameCo
         </tbody>
       </table>
 
+      {match.periods === 2 && (
+        <table className="w-full text-sm">
+          <thead className="text-ink/60">
+            <tr>
+              <th className="py-1 text-left font-semibold">Score by half</th>
+              <th className="py-1 text-right font-semibold">1st</th>
+              <th className="py-1 text-right font-semibold">2nd</th>
+              <th className="py-1 text-right font-semibold">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[0, 1].map((ti) => (
+              <tr key={ti} className="border-t border-ink/10">
+                <td className="py-1.5 font-medium">{match.teams[ti].name}</td>
+                <td className="py-1.5 text-right tabular-nums">{periodScores(match, 1)[ti]}</td>
+                <td className="py-1.5 text-right tabular-nums">{periodScores(match, 2)[ti]}</td>
+                <td className="py-1.5 text-right font-bold tabular-nums">{match.scores[ti]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
       {config.regionLabels.length === 1 && (
         <p className="text-sm text-ink/75">
           Shooting:{' '}
@@ -925,7 +1130,7 @@ function MatchReport({ match, config }: { match: MatchState; config: MatchGameCo
           <ul className="flex flex-col gap-0.5 text-sm text-ink/80">
             {match.events.map((e) => (
               <li key={e.id}>
-                <span className="inline-block w-12 tabular-nums text-ink/60">{formatClock(e.atMs)}</span>
+                <span className="inline-block w-16 tabular-nums text-ink/60">{match.periods === 2 ? `H${e.period} ` : ""}{formatClock(e.atMs - periodLength(match) * (e.period - 1))}</span>
                 {match.teams[e.team].name}
                 {e.scorer !== null && match.teams[e.team].players.length > 1 ? ` (${match.teams[e.team].players[e.scorer]})` : ''} +{e.points}
                 {e.source === 'players' ? ' · players’ call' : ''}

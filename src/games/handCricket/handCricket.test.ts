@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFingers, signFromDigits, type Digit, type DigitState, type Vec3 } from './fingers';
 import { REVEAL_TIMING, RevealDetector, settleSide, type FrameObs } from './revealDetector';
-import { applyBall, newMatch, type HandCricketState } from './rules';
+import { applyBall, ballsLeft, inningsStats, newMatch, type HandCricketState } from './rules';
 
 // ---------------------------------------------------------------------------
 // Synthetic hands: wrist at origin, fingers pointing +y, palm facing -z.
@@ -340,5 +340,42 @@ describe('hand cricket rules', () => {
   it('records manual entries as manual', () => {
     const r = applyBall(newMatch(['A', 'B'], 0), { eventId: 1, batterShow: 2, bowlerShow: 5, source: 'manual' });
     expect(r.state.balls[0].source).toBe('manual');
+  });
+
+  describe('overs limit', () => {
+    it('ends the first innings when the overs run out, without an out', () => {
+      const s0 = newMatch(['A', 'B'], 0, 1); // 1 over = 6 balls
+      expect(ballsLeft(s0)).toBe(6);
+      const { state, decisions } = play(s0, Array(6).fill([2, 5]));
+      expect(decisions[5]).toMatchObject({ inningsEnded: true, out: false });
+      expect(decisions[5].message).toMatch(/Overs done/);
+      expect(state).toMatchObject({ innings: 2, target: 13, scores: [12, 0] });
+      expect(ballsLeft(state)).toBe(6);
+    });
+
+    it('the chaser loses if the overs run out short of the target', () => {
+      const { state } = play(newMatch(['A', 'B'], 0, 1), [...Array(6).fill([2, 5]), ...Array(6).fill([1, 5])]);
+      expect(state.result).toEqual({ winner: 0, text: 'A wins by 6 runs!' });
+    });
+
+    it('a level score when the overs run out is a tie', () => {
+      const { state } = play(newMatch(['A', 'B'], 0, 1), [...Array(6).fill([1, 5]), ...Array(6).fill([1, 5])]);
+      expect(state.result?.winner).toBeNull();
+    });
+
+    it('with no limit, ballsLeft is null', () => {
+      expect(ballsLeft(newMatch(['A', 'B'], 0))).toBeNull();
+    });
+  });
+
+  it('summarises an innings', () => {
+    const { state } = play(newMatch(['A', 'B'], 0), [
+      [6, 1],
+      [4, 2],
+      [1, 3],
+      [5, 5],
+    ]);
+    expect(inningsStats(state, 1)).toEqual({ batter: 0, runs: 11, balls: 4, sixes: 1, fours: 1, out: true, runRate: 16.5 });
+    expect(inningsStats(state, 2)).toBeNull();
   });
 });

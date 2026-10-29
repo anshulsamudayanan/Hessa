@@ -17,6 +17,15 @@ All AI runs **on the phone** (MediaPipe, Apache‑2.0). No video or audio is rec
 
 Football and basketball referee a **whole match**: clock, score for each side, who scored, a box score, a timeline, and the **MVP** (most points) at the end.
 
+**Match features:**
+
+- **Choose your camera.** Every camera game lists the available cameras: built‑in, USB webcams, or a phone's front and back cameras. There's also a **Mirror** switch. Your choice is remembered, and if that camera is unplugged Hessa falls back to another one.
+- **Halves.** Football defaults to two halves and basketball to one period; both offer 2–20 minute matches.
+  - At the end of a half the clock stops on a **half‑time screen** with the score, goals/baskets, shooting, players' calls, top scorers, and (for football) a **switch ends** option, so goals are credited correctly in the second half.
+- **Clock warnings.** "One minute left" / "One minute to half‑time" is spoken and shown, the last 10 seconds beep, and the clock changes colour.
+- **Full time** shows the score by half and a timeline tagged H1/H2.
+- **Hand cricket overs.** You can set an optional overs limit (1, 2, 3 or 5 overs, or until out), with "Last over!" and "Last ball!" warnings. An **innings break** screen shows the first innings (runs, balls, 4s, 6s, run rate, ball‑by‑ball), the target and the required rate.
+
 ## How the referee is built
 
 Every camera game uses the same layers. The AI only *interprets* what happened; deterministic rules decide what it *means*.
@@ -99,7 +108,7 @@ npm run dev
 `npm run dev` and `npm run build` first run `scripts/prepare-ai-assets.mjs`. That script copies the MediaPipe WASM runtime and downloads the two models (about 15 MB, cached in `public/mediapipe/`, which is git‑ignored) so the app serves them from its own origin. Open http://localhost:5173.
 
 ```bash
-npm test        # 86 unit tests: rules engines, event detectors, finger reading, Qif judge, Dama
+npm test        # 110 unit tests: rules engines, event detectors, finger reading, Qif judge, Dama
 npm run lint    # TypeScript check
 npm run build   # production build in dist/ (static files + service worker)
 npm run preview # serve the production build

@@ -51,13 +51,30 @@ export function checkCameraSupport(): CameraError | null {
 
 export type Camera = ReturnType<typeof useCamera>;
 
+export interface CameraDevice {
+  deviceId: string;
+  label: string;
+}
+
+const SAVED_CAMERA = 'hessa.cameraId';
+const readSaved = () => {
+  try {
+    return localStorage.getItem(SAVED_CAMERA);
+  } catch {
+    return null;
+  }
+};
+
 export function useCamera(defaultFacing: Facing = 'environment') {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [status, setStatus] = useState<CameraStatus>('idle');
   const [error, setError] = useState<CameraError | null>(null);
-  const [facing, setFacing] = useState<Facing>(defaultFacing);
-  const [hasMultiple, setHasMultiple] = useState(false);
+  const [facing, setFacing] = useState<Facing | null>(defaultFacing);
+  const [devices, setDevices] = useState<CameraDevice[]>([]);
+  const [deviceId, setDeviceId] = useState<string | null>(readSaved);
+  /** null = automatic (mirror front/laptop cameras); true/false = the user's choice. */
+  const [mirrorOverride, setMirrorOverride] = useState<boolean | null>(null);
 
   const stop = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -66,8 +83,12 @@ export function useCamera(defaultFacing: Facing = 'environment') {
     setStatus('idle');
   }, []);
 
+  /**
+   * Start (or switch) the camera. A specific `deviceId` (e.g. a USB webcam picked
+   * from the list) wins over `facing`; the choice is remembered for next time.
+   */
   const start = useCallback(
-    async (wantFacing: Facing = facing) => {
+    async (opts: { facing?: Facing; deviceId?: string | null } = {}) => {
       const unsupported = checkCameraSupport();
       if (unsupported) {
         setError(unsupported);
@@ -77,11 +98,22 @@ export function useCamera(defaultFacing: Facing = 'environment') {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       setStatus('starting');
       setError(null);
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+      const wantDevice = opts.deviceId !== undefined ? opts.deviceId : opts.facing ? null : deviceId;
+      const base = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+      const open = (id: string | null) =>
+        navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: wantFacing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+          video: id ? { ...base, deviceId: { exact: id } } : { ...base, facingMode: { ideal: opts.facing ?? facing ?? defaultFacing } },
         });
+      try {
+        let stream: MediaStream;
+        try {
+          stream = await open(wantDevice);
+        } catch (err) {
+          // A remembered camera that's been unplugged: fall back to any camera.
+          if (!wantDevice) throw err;
+          stream = await open(null);
+        }
         streamRef.current = stream;
         const video = videoRef.current;
         if (video) {
@@ -91,19 +123,35 @@ export function useCamera(defaultFacing: Facing = 'environment') {
           await video.play().catch(() => {});
         }
         const settings = stream.getVideoTracks()[0]?.getSettings();
-        setFacing((settings?.facingMode as Facing) ?? wantFacing);
-        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-        setHasMultiple(devices.filter((d) => d.kind === 'videoinput').length > 1);
+        setFacing((settings?.facingMode as Facing) ?? null);
+        const id = settings?.deviceId ?? null;
+        setDeviceId(id);
+        try {
+          if (id) localStorage.setItem(SAVED_CAMERA, id);
+        } catch {}
+        // Labels are only available once permission is granted, i.e. now.
+        const all = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+        setDevices(
+          all
+            .filter((d) => d.kind === 'videoinput')
+            .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` })),
+        );
         setStatus('live');
       } catch (err) {
         setError(describeCameraError(err));
         setStatus('error');
       }
     },
-    [facing],
+    [deviceId, facing, defaultFacing],
   );
 
-  const flip = useCallback(() => start(facing === 'user' ? 'environment' : 'user'), [facing, start]);
+  const selectDevice = useCallback((id: string) => start({ deviceId: id }), [start]);
+
+  const flip = useCallback(() => start({ facing: facing === 'user' ? 'environment' : 'user', deviceId: null }), [facing, start]);
+
+  // Phones report which way the camera faces; laptop webcams usually don't, and face the user.
+  const autoMirror = facing === 'user' || (facing === null && !/Android|iPhone|iPad/i.test(navigator.userAgent));
+  const mirrored = mirrorOverride ?? autoMirror;
 
   /** Callback ref: lets the live stream follow the <video> across setup → match screens. */
   const bindVideo = useCallback((el: HTMLVideoElement | null) => {
@@ -119,5 +167,20 @@ export function useCamera(defaultFacing: Facing = 'environment') {
   // Always release the camera when the component using it goes away.
   useEffect(() => stop, [stop]);
 
-  return { videoRef, bindVideo, status, error, facing, hasMultiple, start, stop, flip, mirrored: facing === 'user' };
+  return {
+    videoRef,
+    bindVideo,
+    status,
+    error,
+    facing,
+    devices,
+    deviceId,
+    hasMultiple: devices.length > 1,
+    start,
+    stop,
+    flip,
+    selectDevice,
+    mirrored,
+    setMirrored: setMirrorOverride,
+  };
 }
