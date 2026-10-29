@@ -33,6 +33,8 @@ const CONFIG: MatchGameConfig = {
   diagram: <CourtDiagram />,
   useShirtColors: true,
   makeWatcher: (r: Rect[]) => new BasketWatcher(r[0]),
+  // Zoomed crops find the ball; every other frame is full-frame to find the players for shirt colours.
+  perception: { zoom: true, color: true, fullFrameEvery: 2 },
   durations: [5, 10, 15, 20],
   defaultMinutes: 10,
   targets: [11, 21, null],

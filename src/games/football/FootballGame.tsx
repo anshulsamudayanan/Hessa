@@ -28,12 +28,16 @@ const CONFIG: MatchGameConfig = {
   positioning: [
     'Use a small pitch (about 6–12 m long) with a small goal or two cones at each end.',
     'Put the phone at the halfway line, off to the side, raised (on a chair or wall), in landscape so both goals are in the picture.',
-    'Mark each goal mouth on the picture: draw the box the ball must enter to score.',
-    'Use a ball in a strong colour that stands out from the ground.',
+    'Mark each goal on the picture: draw a box from the goal line (the edge facing the pitch) back to the net, from the ground up to the crossbar.',
+    'Use a proper football (a classic patterned ball was recognised most reliably in testing). Hessa also learns its colour to follow fast, blurred shots.',
+    'Get close enough that the ball looks at least about 2% of the picture’s width — on a phone screen, roughly the size of a pea or bigger.',
+    'Then rest the ball inside each goal for a second so Hessa can measure it there.',
   ],
   diagram: <PitchDiagram />,
   useShirtColors: false,
-  makeWatcher: (r: Rect[]) => new GoalWatcher([r[0], r[1]]),
+  makeWatcher: (r: Rect[], ballR) => new GoalWatcher([r[0], r[1]], { ballR: [ballR[0] ?? null, ballR[1] ?? null] }),
+  perception: { zoom: true, color: true },
+  measureBallInRegions: true,
   durations: [5, 10, 15, 20],
   defaultMinutes: 10,
   targets: [null],
@@ -41,7 +45,7 @@ const CONFIG: MatchGameConfig = {
   points: 1,
   scoreWord: 'goal',
   limitations:
-    'From one side-on camera Hessa can’t see depth, so a ball passing just in front of or behind a goal can look like a goal — use “Disallow” to overturn it. Very fast shots can blur past the camera; use “Camera missed one?” if that happens.',
+    'Hessa calls a goal when the ball crosses the goal line under the bar, and asks you when it can’t be sure. One side-on camera has no true depth: measuring the ball in each goal lets it catch most balls passing in front of or behind the goal, but not all — use “Disallow” to overturn a call. A white or very dark ball can’t be colour-tracked, so very fast shots may be missed; use “Camera missed one?”.',
 };
 
 export function FootballGame() {

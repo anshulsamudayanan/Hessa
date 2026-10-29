@@ -1,4 +1,5 @@
 # Hessa — Explore the world. Play its games.
+Link for the app:https://hessa-drab.vercel.app/#/
 
 Hessa is an installable web app (PWA) where **the phone is the referee**. Pick a country on the world map, choose one of its games, prop the phone up, and play for real in the same room. Hessa watches through the camera (or listens through the microphone), applies the rules, and keeps score.
 
@@ -51,11 +52,24 @@ Fairness guarantees, all covered by tests:
 
 ## Football (Pelada) and Streetball
 
-- **Football:** put the phone side‑on to a small pitch so both goals are in view, then drag a box over each goal mouth. When the ball is seen inside a goal box, the side attacking that goal scores. The ball must come back into play before the next goal can count.
+- **Football:** put the phone side‑on to a small pitch so both goals are in view, and box each goal (from the goal line back to the net, ground to crossbar).
+  - A goal is called when the ball's path **crosses the goal line under the bar**. The path between frames is checked, so a fast shot that skips past the box between two frames still counts. A ball dropping in over the bar, or entering from behind, never counts.
+  - During setup, rest the ball in each goal. Hessa measures how big it looks there, and refers any "goal" where the ball looks much closer or further away (passing in front of or behind the goal) to the players.
+  - If the ball is seen in a goal without a visible crossing, or is lost right in front of a goal mouth, Hessa asks "Was that a goal?".
+  - The ball must come back into play before the next goal can count.
+- **How the ball is found:** the detector only sees small balls when zoomed in. With the real model, a 30 px ball was missed on every whole frame but found on zoomed crops. So Hessa detects on a crop around where the ball should be, sized so the ball fills about 1/8 of it. When the ball is lost, it sweeps coarse and fine tiles across the frame, checking each goal every other step. Between detections it follows the ball's learned colour, which catches motion‑blurred shots.
 - **Basketball:** put the phone to one side of the hoop and box the rim. A basket counts when the ball crosses rim level, going down, inside the rim. Before the match, each team's shirt colour is captured. The player nearest the ball just before release decides which side gets the points. If that's unclear, Hessa asks.
 - **MVP / credit:** when a side has one player, points are credited to them automatically. With 2–3 players, tap the scorer's name on the banner. Tap *3PT* for long shots, or *Disallow* to overturn a call.
 
-**Limitations (experimental):** one camera has no depth, so a ball passing just in front of or behind a goal can look like a goal. Motion blur, the ball leaving the frame, occlusion and low light all cause missed or uncertain calls, and similar shirt colours confuse team detection. The general COCO detector (EfficientDet‑Lite0, "sports ball") struggles with small or fast balls. This is **not** professional goal‑line technology. These games were tested with simulated tracks and a simulated camera, not yet on a real pitch or court.
+**Limitations (experimental):** one camera has no depth, so a ball passing just in front of or behind a goal can look like a goal. Motion blur, the ball leaving the frame, occlusion and low light all cause missed or uncertain calls, and similar shirt colours confuse team detection. I measured the real EfficientDet‑Lite0 model on a simulated pitch using a real ball photo:
+
+- Balls of 18–80 px were found and their goals called, including shots crossing in 0.35 s.
+- Balls under about 18 px were not found.
+- Strongly coloured balls at 45–80 px were sometimes missed. The model can label a big orange ball as the fruit "orange", which Hessa now also accepts as a ball.
+
+This is **not** professional goal‑line technology, and it has not yet been tested on a real pitch or court.
+
+**Model note:** the int8 version of EfficientDet returned wrong results on the GPU (a person was labelled "train"), so Hessa uses the float16 version.
 
 ## Qif
 
@@ -82,7 +96,7 @@ npm install
 npm run dev
 ```
 
-`npm run dev` and `npm run build` first run `scripts/prepare-ai-assets.mjs`. That script copies the MediaPipe WASM runtime and downloads the two models (about 12 MB, cached in `public/mediapipe/`, which is git‑ignored) so the app serves them from its own origin. Open http://localhost:5173.
+`npm run dev` and `npm run build` first run `scripts/prepare-ai-assets.mjs`. That script copies the MediaPipe WASM runtime and downloads the two models (about 15 MB, cached in `public/mediapipe/`, which is git‑ignored) so the app serves them from its own origin. Open http://localhost:5173.
 
 ```bash
 npm test        # 86 unit tests: rules engines, event detectors, finger reading, Qif judge, Dama

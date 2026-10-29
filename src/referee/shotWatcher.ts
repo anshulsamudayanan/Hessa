@@ -33,27 +33,119 @@ const inside = (r: Rect, p: { x: number; y: number }, pad = 0) =>
 // Football: phone side-on to a small pitch, one goal marked at each end.
 // ---------------------------------------------------------------------------
 
+export type Edge = 'left' | 'right' | 'top' | 'bottom';
+
+/**
+ * Where the segment a→b first enters `box` (Liang–Barsky clipping), with `t` the
+ * fraction along the segment. null if it never enters, or if `a` is already inside.
+ */
+export function segmentEntry(a: { x: number; y: number }, b: { x: number; y: number }, box: Rect): { edge: Edge; t: number } | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const p = [-dx, dx, -dy, dy];
+  const q = [a.x - box.x, box.x + box.w - a.x, a.y - box.y, box.y + box.h - a.y];
+  const edges: Edge[] = ['left', 'right', 'top', 'bottom'];
+  let t0 = 0;
+  let t1 = 1;
+  let entry: Edge | null = null;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return null;
+      continue;
+    }
+    const r = q[i] / p[i];
+    if (p[i] < 0) {
+      if (r > t1) return null;
+      if (r > t0) {
+        t0 = r;
+        entry = edges[i];
+      }
+    } else {
+      if (r < t0) return null;
+      if (r < t1) t1 = r;
+    }
+  }
+  return entry ? { edge: entry, t: t0 } : null;
+}
+
+export interface GoalCalibration {
+  /** Apparent ball radius measured inside each goal [left, right] during setup; null if not measured. */
+  ballR: [number | null, number | null];
+}
+
+export const GOAL_RULES = {
+  maxGapMs: 350, // two sightings further apart than this can't be joined into a path
+  depthMin: 0.6, // ball radius vs. calibrated radius at the goal
+  depthMax: 1.65,
+  inBoxSightings: 3,
+  inBoxWindowMs: 900,
+  lostMs: 900,
+  nearMouth: 0.12,
+  restartMs: 700,
+};
+
+/**
+ * Calls a goal when the ball's path crosses a goal mouth (the goal line, under
+ * the bar). Fast shots that skip past the goal box between frames still count,
+ * because the path between sightings is checked, not just the sightings.
+ * Balls entering over the bar or from behind never count. With a calibrated
+ * ball size per goal, a ball that looks much closer to or further from the
+ * camera than the goal (passing in front of / behind it) is referred to players.
+ */
 export class GoalWatcher implements ShotWatcher {
   private armed = true;
-  private hits: number[][] = [[], []];
+  private prev: BallObs | null = null;
+  private prev2: BallObs | null = null;
+  private inBox: number[][] = [[], []];
+  private notViaMouth = [false, false];
+  private lostFlagged = false;
   private clearSince: number | null = null;
   private nextId = 1;
 
   constructor(
     private goals: [Rect, Rect],
-    private confirmMs = 350,
-    private restartMs = 700,
+    private calib: GoalCalibration = { ballR: [null, null] },
+    private rules = GOAL_RULES,
   ) {}
 
   reset() {
     this.armed = true;
-    this.hits = [[], []];
+    this.prev = null;
+    this.prev2 = null;
+    this.inBox = [[], []];
+    this.notViaMouth = [false, false];
+    this.lostFlagged = false;
     this.clearSince = null;
   }
 
+  /** The goal mouth faces the pitch: the right edge of the left goal, the left edge of the right goal. */
+  private mouth(g: 0 | 1): Edge {
+    return g === 0 ? 'right' : 'left';
+  }
+
+  private emit(g: 0 | 1, outcome: ShotVerdict['outcome'], reason: string): WatcherUpdate {
+    this.armed = false;
+    this.clearSince = null;
+    return {
+      status: outcome === 'scored' ? 'Goal!' : 'Was that a goal?',
+      verdict: { id: this.nextId++, outcome, label: outcome === 'scored' ? 'GOAL' : 'Not sure', goal: g === 0 ? 'left' : 'right', reason },
+    };
+  }
+
+  private crossing(g: 0 | 1, r: number): WatcherUpdate {
+    const cal = this.calib.ballR[g];
+    if (cal) {
+      const ratio = r / cal;
+      if (ratio > this.rules.depthMax) return this.emit(g, 'uncertain', 'The ball looked closer to the camera than the goal — it may have passed in front of it.');
+      if (ratio < this.rules.depthMin) return this.emit(g, 'uncertain', 'The ball looked further away than the goal — it may have gone behind it.');
+    }
+    return this.emit(g, 'scored', cal ? 'Ball crossed the goal line under the bar, at the goal’s distance.' : 'Ball crossed the goal line under the bar.');
+  }
+
   update(t: number, ball: BallObs | null): WatcherUpdate {
+    const R = this.rules;
     if (!this.armed) {
-      // After a goal, the ball must be back in play outside both goals before the next one counts.
+      // After a call, the ball must be back in play between the goals before the next one counts.
       const inPlay =
         ball &&
         !inside(this.goals[0], ball, 0.05) &&
@@ -62,34 +154,63 @@ export class GoalWatcher implements ShotWatcher {
         ball.x < this.goals[1].x;
       if (!inPlay) this.clearSince = null;
       else if (this.clearSince === null) this.clearSince = t;
-      if (this.clearSince !== null && t - this.clearSince >= this.restartMs) this.reset();
-      return { status: 'Goal! Restart from the middle' };
+      if (this.clearSince !== null && t - this.clearSince >= R.restartMs) this.reset();
+      return { status: 'Restart from the middle' };
     }
-    if (!ball) return { status: 'Watching the ball' };
-    for (const g of [0, 1] as const) {
-      if (inside(this.goals[g], ball)) {
-        this.hits[g] = [...this.hits[g].filter((h) => t - h <= this.confirmMs), t];
-        // Two sightings inside the same goal within the window confirm it.
-        if (this.hits[g].length >= 2) {
-          this.armed = false;
-          this.clearSince = null;
-          this.hits = [[], []];
-          return {
-            status: 'Goal!',
-            verdict: {
-              id: this.nextId++,
-              outcome: 'scored',
-              label: 'GOAL',
-              goal: g === 0 ? 'left' : 'right',
-              reason: `Ball seen inside the ${g === 0 ? 'left' : 'right'} goal.`,
-            },
-          };
+
+    if (!ball) {
+      // Lost right in front of a goal mouth while heading in: ask rather than guess.
+      const p = this.prev;
+      const q = this.prev2;
+      if (p && q && !this.lostFlagged && t - p.t > R.lostMs) {
+        this.lostFlagged = true;
+        for (const g of [0, 1] as const) {
+          const box = this.goals[g];
+          const mouthX = g === 0 ? box.x + box.w : box.x;
+          const gap = g === 0 ? p.x - mouthX : mouthX - p.x;
+          const heading = g === 0 ? p.x < q.x : p.x > q.x;
+          if (heading && gap >= 0 && gap <= R.nearMouth && p.y >= box.y - 0.03 && p.y <= box.y + box.h + 0.03) {
+            return this.emit(g, 'uncertain', 'Lost sight of the ball just in front of the goal.');
+          }
         }
-        return { status: 'Ball at the goal…' };
+      }
+      return { status: 'Looking for the ball' };
+    }
+
+    const prev = this.prev;
+    this.prev2 = prev;
+    this.prev = ball;
+    this.lostFlagged = false;
+
+    // 1. Did the path since the last sighting cross a goal mouth?
+    if (prev && ball.t - prev.t <= R.maxGapMs) {
+      for (const g of [0, 1] as const) {
+        const entry = segmentEntry(prev, ball, this.goals[g]);
+        if (!entry) continue;
+        if (entry.edge !== this.mouth(g)) {
+          this.notViaMouth[g] = true; // over the bar or round the back: never a goal
+          continue;
+        }
+        return this.crossing(g, prev.r + (ball.r - prev.r) * entry.t);
       }
     }
-    this.hits = [[], []];
-    return { status: 'Watching the ball' };
+
+    // 2. Ball inside a goal without a seen crossing (tracking gap): ask the players.
+    let inAny = false;
+    for (const g of [0, 1] as const) {
+      if (!inside(this.goals[g], ball)) continue;
+      inAny = true;
+      if (this.notViaMouth[g]) return { status: g === 0 ? 'Ball behind the left goal' : 'Ball behind the right goal' };
+      this.inBox[g] = [...this.inBox[g].filter((x) => t - x <= R.inBoxWindowMs), t];
+      if (this.inBox[g].length >= R.inBoxSightings) {
+        return this.emit(g, 'uncertain', 'Saw the ball in the goal but missed how it got there.');
+      }
+    }
+    if (!inAny) {
+      this.inBox = [[], []];
+      this.notViaMouth = [false, false];
+    }
+    return { status: inAny ? 'Ball at the goal…' : 'Watching the ball' };
   }
 }
 

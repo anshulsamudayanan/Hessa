@@ -1,3 +1,4 @@
+import { BALL_CLASSES } from './ballTracker';
 import { FilesetResolver, HandLandmarker, ObjectDetector } from '@mediapipe/tasks-vision';
 
 /**
@@ -47,8 +48,10 @@ export function loadHandLandmarker(): Promise<HandLandmarker> {
 const ballDetectors = new Map<string, Promise<ObjectDetector>>();
 
 /**
- * EfficientDet-Lite0 (COCO) restricted to "sports ball", plus "person" when the
- * game needs to tell teams apart by shirt colour.
+ * EfficientDet-Lite0 float16 (COCO) restricted to "sports ball", plus "person"
+ * when the game needs to tell teams apart by shirt colour. float16, not int8:
+ * tested in-browser, the int8 build returns wrong boxes on the GPU delegate.
+ * Small balls are only found on zoomed crops (see ballPerception.ts).
  */
 export function loadBallDetector(withPeople = false): Promise<ObjectDetector> {
   const key = withPeople ? 'ball+person' : 'ball';
@@ -58,11 +61,11 @@ export function loadBallDetector(withPeople = false): Promise<ObjectDetector> {
       .then((fs) =>
         withDelegate((delegate) =>
           ObjectDetector.createFromOptions(fs, {
-            baseOptions: { modelAssetPath: `${BASE}/models/efficientdet_lite0.tflite`, delegate },
+            baseOptions: { modelAssetPath: `${BASE}/models/efficientdet_lite0_fp16.tflite`, delegate },
             runningMode: 'VIDEO',
             scoreThreshold: 0.3,
             maxResults: withPeople ? 8 : 3,
-            categoryAllowlist: withPeople ? ['sports ball', 'person'] : ['sports ball'],
+            categoryAllowlist: withPeople ? [...BALL_CLASSES, 'person'] : BALL_CLASSES,
           }),
         ),
       )

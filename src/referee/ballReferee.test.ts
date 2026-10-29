@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BallTracker, type BallObs } from './ballTracker';
 import { addScore, amendScore, boxScore, endMatch, newMatch, recordAttempt, tick, type MatchConfig, type MatchState } from './matchRules';
-import { BasketWatcher, GoalWatcher, judgeBasket } from './shotWatcher';
+import { findColorBlob, isTrackableColor } from './ballColor';
+import { BasketWatcher, GoalWatcher, judgeBasket, segmentEntry } from './shotWatcher';
 import { attributeShot, classifyColor, rgbToLab } from './teamColors';
 
 const ball = (t: number, x: number, y: number, r = 0.03, score = 0.8): BallObs => ({ t, x, y, r, score });
@@ -30,9 +31,60 @@ describe('ball tracker', () => {
     tr.update(1000, []);
     expect(tr.update(1033, [ball(1033, 0.9, 0.9)])).toMatchObject({ x: 0.9 });
   });
+
+  it('predicts motion: prefers the candidate ahead of a moving ball over one left behind', () => {
+    const tr = new BallTracker();
+    tr.update(0, [ball(0, 0.1, 0.5)]);
+    tr.update(33, [ball(33, 0.2, 0.5)]);
+    const next = tr.update(66, [ball(66, 0.16, 0.5), ball(66, 0.3, 0.5)]);
+    expect(next?.x).toBeCloseTo(0.3);
+  });
+
+  it('a colour blob can continue a track but never start one', () => {
+    const tr = new BallTracker();
+    expect(tr.update(0, [{ ...ball(0, 0.5, 0.5), source: 'color' }])).toBeNull();
+    tr.update(33, [ball(33, 0.5, 0.5)]);
+    expect(tr.update(66, [{ ...ball(66, 0.55, 0.5), source: 'color' }])).toMatchObject({ source: 'color' });
+  });
+
+  it('prefers a detector sighting over a colour blob when both are near', () => {
+    const tr = new BallTracker();
+    tr.update(0, [ball(0, 0.5, 0.5)]);
+    const next = tr.update(33, [{ ...ball(33, 0.51, 0.5), source: 'color' }, { ...ball(33, 0.53, 0.5), source: 'detector' }]);
+    expect(next?.source).toBe('detector');
+  });
+});
+
+describe('ball colour blob', () => {
+  const orange = rgbToLab(240, 120, 30);
+  function image(w: number, h: number, paint: [number, number][]) {
+    const d = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) d.set([60, 140, 60, 255], i * 4); // grass
+    for (const [x, y] of paint) d.set([240, 120, 30, 255], (y * w + x) * 4);
+    return d;
+  }
+
+  it('finds the ball-coloured blob and ignores a stray pixel', () => {
+    const px: [number, number][] = [[1, 1]];
+    for (let y = 5; y < 9; y++) for (let x = 10; x < 14; x++) px.push([x, y]);
+    const blob = findColorBlob(image(20, 20, px), 20, { x0: 0, y0: 0, x1: 20, y1: 20 }, orange);
+    expect(blob?.x).toBeCloseTo(11.5);
+    expect(blob?.y).toBeCloseTo(6.5);
+    expect(blob?.count).toBe(16);
+  });
+
+  it('returns nothing when the colour is absent', () => {
+    expect(findColorBlob(image(20, 20, []), 20, { x0: 0, y0: 0, x1: 20, y1: 20 }, orange)).toBeNull();
+  });
+
+  it('refuses white/grey balls as a tracking colour', () => {
+    expect(isTrackableColor(rgbToLab(245, 245, 245))).toBe(false);
+    expect(isTrackableColor(orange)).toBe(true);
+  });
 });
 
 // Side-on pitch: left goal at the left edge, right goal at the right edge.
+// Mouths (goal lines): x = 0.10 for the left goal, x = 0.90 for the right goal.
 const LEFT = { x: 0.02, y: 0.45, w: 0.08, h: 0.2 };
 const RIGHT = { x: 0.9, y: 0.45, w: 0.08, h: 0.2 };
 
@@ -47,23 +99,71 @@ function feed(w: GoalWatcher | BasketWatcher, balls: (BallObs | null)[], t0 = 0)
   return verdicts;
 }
 
+describe('goal-line geometry', () => {
+  it('finds which edge a path enters a box through', () => {
+    expect(segmentEntry({ x: 0.5, y: 0.55 }, { x: 0.95, y: 0.55 }, RIGHT)).toMatchObject({ edge: 'left' });
+    expect(segmentEntry({ x: 0.94, y: 0.3 }, { x: 0.94, y: 0.55 }, RIGHT)).toMatchObject({ edge: 'top' });
+    expect(segmentEntry({ x: 0.5, y: 0.2 }, { x: 0.6, y: 0.3 }, RIGHT)).toBeNull();
+    expect(segmentEntry({ x: 0.95, y: 0.5 }, { x: 0.96, y: 0.5 }, RIGHT)).toBeNull(); // starts inside
+  });
+});
+
 describe('football goal watcher', () => {
-  it('calls a goal in the right goal', () => {
+  it('calls a goal when the ball crosses the goal line under the bar', () => {
     const v = feed(new GoalWatcher([LEFT, RIGHT]), path(0, [0.5, 0.55], [0.95, 0.55], 600));
     expect(v).toHaveLength(1);
     expect(v[0]).toMatchObject({ outcome: 'scored', goal: 'right' });
   });
 
-  it('does not count a ball that only clips the goal box for one frame', () => {
-    const balls = [...path(0, [0.5, 0.55], [0.88, 0.55], 400), ball(433, 0.91, 0.55), ...path(466, [0.85, 0.55], [0.6, 0.55], 300)];
+  it('catches a fast shot that skips past the goal box between two frames', () => {
+    const v = feed(new GoalWatcher([LEFT, RIGHT]), [ball(0, 0.7, 0.55), ball(33, 0.84, 0.56), ball(66, 0.995, 0.57)]);
+    expect(v).toMatchObject([{ outcome: 'scored', goal: 'right' }]);
+  });
+
+  it('a ball dropping in over the bar and sitting behind the goal is never a goal', () => {
+    const balls = [...path(0, [0.8, 0.2], [0.94, 0.3], 200), ...path(233, [0.94, 0.3], [0.95, 0.6], 300), ...Array.from({ length: 40 }, (_, i) => ball(600 + i * 33, 0.95, 0.6))];
+    expect(feed(new GoalWatcher([LEFT, RIGHT]), balls)).toHaveLength(0);
+  });
+
+  it('a shot along the front of the goal that stays outside is not a goal', () => {
+    expect(feed(new GoalWatcher([LEFT, RIGHT]), path(0, [0.86, 0.2], [0.86, 0.8], 600))).toHaveLength(0);
+  });
+
+  it('with a measured ball size, a ball passing much closer to the camera is referred to the players', () => {
+    const w = new GoalWatcher([LEFT, RIGHT], { ballR: [null, 0.03] });
+    const nearCamera = path(0, [0.5, 0.55], [0.95, 0.55], 600).map((b) => ({ ...b, r: 0.06 }));
+    const v = feed(w, nearCamera);
+    expect(v).toHaveLength(1);
+    expect(v[0]).toMatchObject({ outcome: 'uncertain', goal: 'right' });
+    expect(v[0].reason).toMatch(/in front/);
+  });
+
+  it('with a measured ball size, a ball at the goal’s distance is a clean goal', () => {
+    const v = feed(new GoalWatcher([LEFT, RIGHT], { ballR: [null, 0.03] }), path(0, [0.5, 0.55], [0.95, 0.55], 600));
+    expect(v[0]).toMatchObject({ outcome: 'scored' });
+  });
+
+  it('asks when the ball shows up in the goal but the crossing was missed', () => {
+    const balls = [ball(0, 0.6, 0.55), ...Array.from({ length: 5 }, (_, i) => ball(1200 + i * 33, 0.95, 0.6))];
+    const v = feed(new GoalWatcher([LEFT, RIGHT]), balls);
+    expect(v).toMatchObject([{ outcome: 'uncertain', goal: 'right' }]);
+  });
+
+  it('asks when the ball is lost just in front of a goal while heading in', () => {
+    const balls: (BallObs | null)[] = [...path(0, [0.5, 0.55], [0.85, 0.55], 300), ...Array(40).fill(null)];
+    const v = feed(new GoalWatcher([LEFT, RIGHT]), balls);
+    expect(v).toMatchObject([{ outcome: 'uncertain', goal: 'right' }]);
+  });
+
+  it('does not ask when the ball is lost in mid-field', () => {
+    const balls: (BallObs | null)[] = [...path(0, [0.3, 0.55], [0.5, 0.55], 300), ...Array(40).fill(null)];
     expect(feed(new GoalWatcher([LEFT, RIGHT]), balls)).toHaveLength(0);
   });
 
   it('counts one goal while the ball sits in the net, then re-arms after the restart', () => {
     const w = new GoalWatcher([LEFT, RIGHT]);
-    const sitInNet = Array.from({ length: 60 }, (_, i) => ball(i * 33, 0.05, 0.55));
-    expect(feed(w, sitInNet)).toHaveLength(1);
-    // Kick-off from the middle, then a goal at the other end.
+    const goal = [...path(0, [0.4, 0.55], [0.05, 0.55], 300), ...Array.from({ length: 60 }, (_, i) => ball(333 + i * 33, 0.05, 0.55))];
+    expect(feed(w, goal)).toHaveLength(1);
     const restart = Array.from({ length: 30 }, (_, i) => ball(3000 + i * 33, 0.5, 0.55));
     const second = path(4100, [0.5, 0.55], [0.95, 0.55], 600);
     const v = feed(w, [...restart, ...second]);

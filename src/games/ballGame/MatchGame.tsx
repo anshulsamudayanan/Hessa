@@ -10,7 +10,8 @@ import { TopBar } from '@/components/TopBar';
 import type { GameInfo } from '@/data/catalog';
 import { navigate } from '@/lib/router';
 import { announcer } from '@/referee/announcer';
-import { BallTracker, ballsFromDetections, type BallObs } from '@/referee/ballTracker';
+import { BallPerception } from '@/referee/ballPerception';
+import type { BallObs } from '@/referee/ballTracker';
 import { useCamera, type Camera } from '@/referee/camera';
 import { useFrameLoop } from '@/referee/frameLoop';
 import {
@@ -55,7 +56,12 @@ export interface MatchGameConfig {
   diagram: ReactNode;
   /** Basketball: tell sides apart by shirt colour. */
   useShirtColors: boolean;
-  makeWatcher: (regions: Rect[]) => ShotWatcher;
+  /** `ballR`: ball size measured inside each region during setup (null = not measured). */
+  makeWatcher: (regions: Rect[], ballR: (number | null)[]) => ShotWatcher;
+  /** Detect on zoomed-in crops (football) and/or follow the ball's colour between detections. */
+  perception: { zoom: boolean; color: boolean; fullFrameEvery?: number };
+  /** Measure the ball's apparent size inside each region during setup (football depth check). */
+  measureBallInRegions?: boolean;
   durations: number[]; // minutes
   defaultMinutes: number;
   targets: (number | null)[];
@@ -88,6 +94,7 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
   const [target, setTarget] = useState<number | null>(config.defaultTarget);
   const [teamAAttacks, setTeamAAttacks] = useState<'left' | 'right'>('right');
   const [regions, setRegions] = useState<(Rect | null)[]>(() => config.regionLabels.map(() => null));
+  const [ballR, setBallR] = useState<(number | null)[]>(() => config.regionLabels.map(() => null));
   const [modelStatus, setModelStatus] = useState<ModelStatus>('idle');
   const detector = useRef<ObjectDetector | null>(null);
   const [match, setMatch] = useState<MatchState | null>(null);
@@ -150,6 +157,7 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
         camera={camera}
         detector={detector.current}
         regions={regions as Rect[]}
+        ballR={ballR}
         shirts={shirts}
         shirtCss={[teams[0].shirt?.css, teams[1].shirt?.css]}
         teamAAttacks={teamAAttacks}
@@ -231,7 +239,13 @@ export function MatchGame({ config }: { config: MatchGameConfig }) {
           detector={detector}
           modelStatus={modelStatus}
           regions={regions}
-          setRegions={setRegions}
+          setRegions={(r) => {
+            // Moving a region invalidates the ball size measured inside it.
+            setBallR((prev) => prev.map((v, i) => (r[i] === regions[i] ? v : null)));
+            setRegions(r);
+          }}
+          ballR={ballR}
+          setBallR={setBallR}
           teams={teams}
           setShirt={(ti, shirt) => setTeams((prev) => (ti === 0 ? [{ ...prev[0], shirt }, prev[1]] : [prev[0], { ...prev[1], shirt }]))}
           onStart={() => {
@@ -320,7 +334,10 @@ function drawScene(o: Overlay, regions: Rect[], labels: string[], trail: BallObs
     ctx.arc(p.x, p.y, last ? Math.max(8, b.r * rect.h) : 4, 0, Math.PI * 2);
     ctx.strokeStyle = last ? '#EAE0CC' : 'rgba(201,173,161,0.8)';
     ctx.lineWidth = last ? 3 : 2;
+    // Dashed = followed by colour between detections.
+    ctx.setLineDash(last && b.source === 'color' ? [5, 4] : []);
     ctx.stroke();
+    ctx.setLineDash([]);
   });
 }
 
@@ -331,6 +348,8 @@ function MatchCameraSetup({
   modelStatus,
   regions,
   setRegions,
+  ballR,
+  setBallR,
   teams,
   setShirt,
   onStart,
@@ -341,16 +360,23 @@ function MatchCameraSetup({
   modelStatus: ModelStatus;
   regions: (Rect | null)[];
   setRegions: (r: (Rect | null)[]) => void;
+  ballR: (number | null)[];
+  setBallR: (r: (number | null)[]) => void;
   teams: [TeamSetup, TeamSetup];
   setShirt: (team: TeamIndex, shirt: TeamSetup['shirt']) => void;
   onStart: () => void;
 }) {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const clock = useRef(monotonicClock());
-  const tracker = useRef(new BallTracker());
+  const perception = useRef<BallPerception | null>(null);
   const people = useRef<PersonSighting[]>([]);
+  // Ball sizes seen inside each region, for the depth check.
+  const sizeSamples = useRef<{ t: number; r: number }[][]>(config.regionLabels.map(() => []));
+  const ballRRef = useRef(ballR);
+  ballRRef.current = ballR;
   const [active, setActive] = useState(0);
   const [seenAt, setSeenAt] = useState(0);
+  const [ballCss, setBallCss] = useState<string | null>(null);
   const [now, setNow] = useState(0);
   const [shirtMsg, setShirtMsg] = useState<string | null>(null);
 
@@ -363,14 +389,33 @@ function MatchCameraSetup({
     camera.videoRef,
     camera.status === 'live' && modelStatus === 'ready',
     (video, t) => {
-      const res = detector.current!.detectForVideo(video, clock.current());
-      const ball = tracker.current.update(t, ballsFromDetections(res, video.videoWidth, video.videoHeight, camera.mirrored, t));
-      if (config.useShirtColors) people.current = peopleFromDetections(res, video, camera.mirrored);
+      perception.current ??= new BallPerception(detector.current!, config.perception);
+      const p = perception.current;
+      p.setFocusRegions(regions.filter((r): r is Rect => !!r));
+      const { ball, fullFrame } = p.process(video, t, camera.mirrored, clock.current());
+      if (config.useShirtColors && fullFrame) people.current = peopleFromDetections(fullFrame, video, camera.mirrored);
       const o = prepareOverlay(overlayRef.current, video);
-      if (o) drawScene(o, [], [], ball ? [ball] : [], people.current.map((p) => ({ ...p, team: null })), []);
+      if (o) drawScene(o, [], [], ball ? [ball] : [], people.current.map((x) => ({ ...x, team: null })), []);
       if (ball) setSeenAt(t);
+      if (p.colorCss) setBallCss((c) => c ?? p.colorCss);
+
+      // Measure the ball's apparent size when it rests (detector-confirmed) inside a region.
+      if (config.measureBallInRegions && ball?.source === 'detector') {
+        regions.forEach((reg, i) => {
+          if (!reg || ballRRef.current[i] !== null) return;
+          const inReg = ball.x >= reg.x && ball.x <= reg.x + reg.w && ball.y >= reg.y && ball.y <= reg.y + reg.h;
+          const s = (sizeSamples.current[i] = inReg ? [...sizeSamples.current[i].filter((x) => t - x.t < 1000), { t, r: ball.r }] : []);
+          const rs = s.map((x) => x.r).sort((a, b) => a - b);
+          if (rs.length >= 6 && rs[rs.length - 1] / rs[0] < 1.35) {
+            const next = [...ballRRef.current];
+            next[i] = rs[Math.floor(rs.length / 2)];
+            setBallR(next);
+            announcer.beep(880, 0.12);
+          }
+        });
+      }
     },
-    15,
+    20,
   );
 
   const capture = (ti: TeamIndex) => {
@@ -426,7 +471,33 @@ function MatchCameraSetup({
           <div className="flex items-center gap-2">
             <CircleDot className={`size-5 ${ballVisible ? 'text-teal' : 'text-ink/40'}`} />
             <span className="font-semibold">{ballVisible ? 'Ball detected ✓' : 'Hold the ball up in view to test detection'}</span>
+            {config.perception.color && (
+              <span className="ml-auto flex items-center gap-1.5 text-ink/70">
+                <span className="size-4 rounded-full ring-2 ring-ink/20" style={{ background: ballCss ?? 'transparent' }} />
+                {ballCss ? 'Ball colour learned' : 'Learning ball colour…'}
+              </span>
+            )}
           </div>
+          {config.measureBallInRegions && (
+            <div className="flex flex-col gap-1.5 border-t border-ink/10 pt-3">
+              <div className="font-semibold">Ball size at each goal (recommended)</div>
+              <p className="text-ink/70">
+                Put the ball on the goal line inside each goal for a second. Hessa measures how big it looks there, so it can tell a real goal
+                from a ball passing in front of or behind the goal.
+              </p>
+              {config.regionLabels.map((label, i) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className={`size-2.5 rounded-full ${ballR[i] ? 'bg-teal' : 'bg-dusty'}`} />
+                  {label}: {ballR[i] ? 'measured ✓' : regions[i] ? 'place the ball inside it' : 'mark it first'}
+                  {ballR[i] && (
+                    <button className="ml-auto text-teal underline" onClick={() => setBallR(ballR.map((v, j) => (j === i ? null : v)))}>
+                      Re-measure
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {config.useShirtColors && (
             <div className="flex flex-col gap-2 border-t border-ink/10 pt-3">
               <div className="flex items-center gap-2 font-semibold">
@@ -467,6 +538,7 @@ function MatchScreen({
   camera,
   detector,
   regions,
+  ballR,
   shirts,
   shirtCss,
   teamAAttacks,
@@ -479,6 +551,7 @@ function MatchScreen({
   camera: Camera;
   detector: ObjectDetector;
   regions: Rect[];
+  ballR: (number | null)[];
   shirts: [Lab, Lab] | null;
   shirtCss: (string | undefined)[];
   teamAAttacks: 'left' | 'right';
@@ -489,8 +562,9 @@ function MatchScreen({
 }) {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const clock = useRef(monotonicClock());
-  const tracker = useRef(new BallTracker());
-  const watcher = useRef<ShotWatcher>(config.makeWatcher(regions));
+  const perception = useRef<BallPerception>(null!);
+  perception.current ??= new BallPerception(detector, { ...config.perception, focusRegions: regions });
+  const watcher = useRef<ShotWatcher>(config.makeWatcher(regions, ballR));
   const trail = useRef<BallObs[]>([]);
   const peopleFrames = useRef<{ t: number; people: PersonSighting[] }[]>([]);
   const matchRef = useRef(match);
@@ -558,7 +632,7 @@ function MatchScreen({
       return;
     }
     if (v.outcome === 'uncertain') {
-      setPending({ kind: 'uncertain', verdict: v, team: shooter });
+      setPending({ kind: 'uncertain', verdict: v, team: v.goal ? teamForGoal(v.goal) : shooter });
       announcer.beep(330, 0.25);
       announcer.say('Not sure. Did it go in?');
       return;
@@ -576,12 +650,11 @@ function MatchScreen({
     camera.videoRef,
     !paused && !pending && !match.finished,
     (video, t) => {
-      const res = detector.detectForVideo(video, clock.current());
-      const ball = tracker.current.update(t, ballsFromDetections(res, video.videoWidth, video.videoHeight, camera.mirrored, t));
+      const { ball, fullFrame } = perception.current.process(video, t, camera.mirrored, clock.current());
       if (ball) trail.current = [...trail.current.filter((b) => t - b.t < 1500), ball];
       let people: (PersonSighting & { team: TeamIndex | null })[] = [];
-      if (shirts) {
-        const seen = peopleFromDetections(res, video, camera.mirrored);
+      if (shirts && fullFrame) {
+        const seen = peopleFromDetections(fullFrame, video, camera.mirrored);
         peopleFrames.current = [...peopleFrames.current.filter((f) => t - f.t < 1500), { t, people: seen }];
         people = seen.map((p) => ({ ...p, team: classifyColor(p.color, shirts) }));
       }
@@ -596,7 +669,7 @@ function MatchScreen({
 
   const resumeWatching = () => {
     watcher.current.reset();
-    tracker.current.reset();
+    perception.current.reset();
     trail.current = [];
   };
 
@@ -667,7 +740,9 @@ function MatchScreen({
           <div className="rounded-2xl bg-cream px-4 py-3 text-ink">
             <div className="font-bold">
               {pending.kind === 'uncertain'
-                ? `Hessa couldn’t be sure — did it go in?`
+                ? pending.verdict.goal
+                  ? `Was that a goal in the ${pending.verdict.goal} goal?`
+                  : `Hessa couldn’t be sure — did it go in?`
                 : pending.kind === 'which-team'
                   ? `${pending.verdict.label}! Which side scored?`
                   : `Add a ${config.scoreWord} (players’ call)`}
@@ -680,10 +755,11 @@ function MatchScreen({
                   : 'Use this if the camera missed one. It’s recorded as a players’ call.'}
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              {[0, 1].map((ti) => (
+              {/* Football already knows which goal, so the only question is "was it a goal?". */}
+              {(pending.kind === 'uncertain' && pending.verdict.goal && pending.team !== null ? [pending.team] : [0, 1]).map((ti, _, list) => (
                 <button
                   key={ti}
-                  className="btn-primary"
+                  className={`btn-primary ${list.length === 1 ? 'col-span-2' : ''}`}
                   onClick={() => {
                     const id = pending.kind === 'manual' ? manualId.current++ : pending.verdict.id;
                     const label = pending.kind === 'manual' ? config.scoreWord.toUpperCase() : pending.verdict.label === 'Not sure' ? config.scoreWord.toUpperCase() : pending.verdict.label;
@@ -696,7 +772,7 @@ function MatchScreen({
                     resumeWatching();
                   }}
                 >
-                  {pending.kind === 'uncertain' ? `Yes — ${match.teams[ti].name}` : match.teams[ti].name}
+                  {pending.kind === 'uncertain' ? (list.length === 1 ? `Yes — goal for ${match.teams[ti].name}` : `Yes — ${match.teams[ti].name}`) : match.teams[ti].name}
                 </button>
               ))}
               <button
