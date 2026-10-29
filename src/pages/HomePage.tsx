@@ -1,7 +1,7 @@
 import { Camera, ChevronRight, Mic, Grid3x3, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Flag } from '@/components/Flag';
-import { MAP_COUNTRY_NAMES, WorldMap } from '@/components/WorldMap';
+import { Globe, MAP_COUNTRY_NAMES } from '@/components/Globe';
 import { COUNTRIES, GAMES, type RefereeKind } from '@/data/catalog';
 import { navigate } from '@/lib/router';
 
@@ -88,13 +88,13 @@ export function HomePage() {
       </div>
 
       <section aria-label="World map" className="flex flex-col gap-2">
-        <WorldMap
+        <Globe
           onSelectPlayable={(id) => navigate(`/country/${id}`)}
           onSelectOther={showOther}
           highlightIso={highlightIso}
         />
         <p className="min-h-6 text-sm text-ink/70" role="status">
-          {notice ?? 'Tap a highlighted country. Drag and pinch to explore.'}
+          {notice ?? 'Spin the globe and tap a highlighted country. Pinch or scroll to zoom.'}
         </p>
       </section>
 

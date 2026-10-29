@@ -111,7 +111,7 @@ It opens full‑screen like a native app. After the first visit, the app shell w
 
 ## Project notes
 
-- **Stack:** React 19, Vite, Tailwind CSS 4, motion, lucide-react, d3-geo + world-atlas for the map, vite-plugin-pwa (Workbox), Vitest.
+- **Stack:** React 19, Vite, Tailwind CSS 4, motion, lucide-react, d3-geo + world-atlas for the canvas globe, vite-plugin-pwa (Workbox), Vitest.
 - **Palette:** cream `#EAE0CC`, dusty rose `#C9ADA1`, olive `#A0A083`, sage `#798478`, deep teal `#4D6A6D`. The reference image is in `docs/design/`.
 - **Origin:** this repo started from the Google AI Studio "FAREEG AI" project (Emirati games tournament + video upload review). The Express server, tournaments, leaderboards and record‑then‑review flow were removed because Hessa referees live and has no online features. The whistle synthesis was kept. The old code is in git history.
 
