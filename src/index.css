@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --palette-pearl: #EAE0CC;
+    --palette-sand: #C9ADA1;
+    --palette-sage: #A0A083;
+    --palette-mineral: #798478;
+    --palette-teal: #4D6A6D;
+    --fareeg-gold: #D4AF37;
+    --fareeg-navy: #060B18;
+    --fareeg-navy-card: #0A1326;
+  }
+
+  body {
+    background-color: #060b18;
+    color: #f8fafc;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-heritage {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #080f20;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c2a44;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #798478;
+}
+
+/* Palette Color Utilities */
+.bg-palette-pearl { background-color: #EAE0CC; }
+.bg-palette-sand { background-color: #C9ADA1; }
+.bg-palette-sage { background-color: #A0A083; }
+.bg-palette-mineral { background-color: #798478; }
+.bg-palette-teal { background-color: #4D6A6D; }
+
+.text-palette-pearl { color: #EAE0CC; }
+.text-palette-sand { color: #C9ADA1; }
+.text-palette-sage { color: #A0A083; }
+.text-palette-mineral { color: #798478; }
+.text-palette-teal { color: #4D6A6D; }
+
+.border-palette-teal { border-color: rgba(77, 106, 109, 0.4); }
+.border-palette-sand { border-color: rgba(201, 173, 161, 0.3); }
+.border-palette-sage { border-color: rgba(160, 160, 131, 0.3); }
+
+/* Luxury Emirati Gold & Pearl Gradients */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #EAE0CC 0%, #D4AF37 55%, #C9ADA1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.teal-gradient-text {
+  background: linear-gradient(135deg, #EAE0CC 0%, #4D6A6D 70%, #798478 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Heritage Cards with palette borders */
+.navy-card {
+  background: linear-gradient(180deg, #0c162e 0%, #070d1e 100%);
+  border: 1px solid rgba(77, 106, 109, 0.25);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.navy-card:hover {
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.heritage-card-teal {
+  background: linear-gradient(180deg, rgba(77, 106, 109, 0.15) 0%, rgba(6, 11, 24, 0.95) 100%);
+  border: 1px solid rgba(77, 106, 109, 0.35);
+  box-shadow: 0 10px 30px -10px rgba(77, 106, 109, 0.2);
+}
+
+.heritage-card-sand {
+  background: linear-gradient(180deg, rgba(201, 173, 161, 0.1) 0%, rgba(6, 11, 24, 0.95) 100%);
+  border: 1px solid rgba(201, 173, 161, 0.25);
+}
+
+/* Refined Action Buttons */
+.gold-button {
+  background: linear-gradient(135deg, #EAE0CC 0%, #D4AF37 50%, #C9ADA1 100%);
+  color: #060B18;
+  font-weight: 700;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.gold-button:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.35);
+  transform: translateY(-1px);
+}
+
+.teal-button {
+  background: linear-gradient(135deg, #4D6A6D 0%, #374E51 100%);
+  color: #EAE0CC;
+  font-weight: 700;
+  border: 1px solid rgba(234, 224, 204, 0.2);
+  transition: all 0.2s ease;
+}
+.teal-button:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 18px rgba(77, 106, 109, 0.4);
+  transform: translateY(-1px);
+}
+
+.sand-button {
+  background: linear-gradient(135deg, #C9ADA1 0%, #A88D81 100%);
+  color: #060B18;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+.sand-button:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 15px rgba(201, 173, 161, 0.4);
+}
+
+/* Animations */
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.04); }
+}
+.animate-pulse-glow {
+  animation: pulseGlow 4s infinite ease-in-out;
+}
+
+@keyframes mapPing {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.4); opacity: 0.3; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+.animate-map-ping {
+  animation: mapPing 2.5s infinite ease-in-out;
+}

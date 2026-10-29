@@ -1,0 +1,6 @@
+{
+  "name": "FAREEG AI — AI-Powered Emirati Traditional Games Arena",
+  "description": "FAREEG AI is an AI-powered tournament arena for Emirati traditional games and football, bringing families together with camera recording, event review, and tournament scoring.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

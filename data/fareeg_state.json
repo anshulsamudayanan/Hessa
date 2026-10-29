@@ -1,0 +1,443 @@
+{
+  "tournaments": [
+    {
+      "id": "tourn-al-wasl-2026",
+      "name": "Al Wasl Heritage Family Championship",
+      "format": "family_cup",
+      "games": [
+        "football",
+        "al_teela",
+        "al_dama",
+        "al_laqaf",
+        "qif"
+      ],
+      "status": "active",
+      "createdAt": "2026-10-29T11:35:33.187Z",
+      "matchesCount": 3,
+      "teams": [
+        {
+          "id": "team-falcons",
+          "name": "Al Saqr Falcons",
+          "arabicName": "صقور الفريج",
+          "color": "#D4AF37",
+          "players": [
+            {
+              "id": "p1",
+              "name": "Rashid Al Nuaimi",
+              "number": 10
+            },
+            {
+              "id": "p2",
+              "name": "Zayed Al Nuaimi",
+              "number": 7
+            },
+            {
+              "id": "p3",
+              "name": "Mariam Al Nuaimi",
+              "number": 1
+            }
+          ]
+        },
+        {
+          "id": "team-knights",
+          "name": "Desert Knights",
+          "arabicName": "فرسان الصحراء",
+          "color": "#3B82F6",
+          "players": [
+            {
+              "id": "p4",
+              "name": "Hamad Al Marri",
+              "number": 9
+            },
+            {
+              "id": "p5",
+              "name": "Sultan Al Marri",
+              "number": 8
+            },
+            {
+              "id": "p6",
+              "name": "Fatima Al Marri",
+              "number": 4
+            }
+          ]
+        },
+        {
+          "id": "team-pearls",
+          "name": "Gulf Pearls",
+          "arabicName": "لؤلؤ الخليج",
+          "color": "#10B981",
+          "players": [
+            {
+              "id": "p7",
+              "name": "Salem Al Mansoori",
+              "number": 11
+            },
+            {
+              "id": "p8",
+              "name": "Reem Al Mansoori",
+              "number": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tourn-1793274125664",
+      "name": "Emirati Family Arena Cup 2026",
+      "format": "family_cup",
+      "games": [
+        "football"
+      ],
+      "teams": [
+        {
+          "id": "team-1793274125664-0",
+          "name": "Al Saqr (Falcons)",
+          "arabicName": "صقور الفريج",
+          "color": "#D4AF37",
+          "players": [
+            {
+              "id": "p-1793274125664-0-0",
+              "name": "Mariam",
+              "number": 1
+            }
+          ]
+        },
+        {
+          "id": "team-1793274125664-1",
+          "name": "Al Fursan (Knights)",
+          "arabicName": "فرسان الفريج",
+          "color": "#3B82F6",
+          "players": [
+            {
+              "id": "p-1793274125664-1-0",
+              "name": "Hamad (Captain)",
+              "number": 9
+            },
+            {
+              "id": "p-1793274125664-1-1",
+              "name": "Sultan",
+              "number": 8
+            },
+            {
+              "id": "p-1793274125664-1-2",
+              "name": "Fatima",
+              "number": 4
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-10-29T11:42:05.664Z",
+      "status": "active",
+      "matchesCount": 1
+    }
+  ],
+  "matches": [
+    {
+      "id": "match-demo-001",
+      "tournamentId": "tourn-al-wasl-2026",
+      "tournamentName": "Al Wasl Heritage Family Championship",
+      "gameId": "al_teela",
+      "teamA": {
+        "id": "team-falcons",
+        "name": "Al Saqr Falcons",
+        "arabicName": "صقور الفريج",
+        "color": "#D4AF37",
+        "players": [
+          {
+            "id": "p1",
+            "name": "Rashid Al Nuaimi",
+            "number": 10
+          },
+          {
+            "id": "p2",
+            "name": "Zayed Al Nuaimi",
+            "number": 7
+          },
+          {
+            "id": "p3",
+            "name": "Mariam Al Nuaimi",
+            "number": 1
+          }
+        ]
+      },
+      "teamB": {
+        "id": "team-knights",
+        "name": "Desert Knights",
+        "arabicName": "فرسان الصحراء",
+        "color": "#3B82F6",
+        "players": [
+          {
+            "id": "p4",
+            "name": "Hamad Al Marri",
+            "number": 9
+          },
+          {
+            "id": "p5",
+            "name": "Sultan Al Marri",
+            "number": 8
+          },
+          {
+            "id": "p6",
+            "name": "Fatima Al Marri",
+            "number": 4
+          }
+        ]
+      },
+      "scores": {
+        "team-falcons": 3,
+        "team-knights": 1
+      },
+      "status": "completed",
+      "createdAt": "2026-10-29T10:35:33.187Z",
+      "startedAt": "2026-10-29T10:35:33.187Z",
+      "completedAt": "2026-10-29T11:05:33.187Z",
+      "durationSeconds": 142,
+      "hostNotes": "Exciting Al Teela round! Rashid scored two clean ring knockouts.",
+      "hostAdjustmentsMade": false
+    },
+    {
+      "id": "match-1793274080292-udcl",
+      "tournamentId": "tourn-al-wasl-2026",
+      "tournamentName": "Al Wasl Heritage Family Championship",
+      "gameId": "al_laqaf",
+      "teamA": {
+        "id": "team-falcons",
+        "name": "Al Saqr Falcons",
+        "arabicName": "صقور الفريج",
+        "color": "#D4AF37",
+        "players": [
+          {
+            "id": "p1",
+            "name": "Rashid Al Nuaimi",
+            "number": 10
+          },
+          {
+            "id": "p2",
+            "name": "Zayed Al Nuaimi",
+            "number": 7
+          },
+          {
+            "id": "p3",
+            "name": "Mariam Al Nuaimi",
+            "number": 1
+          }
+        ]
+      },
+      "teamB": {
+        "id": "team-knights",
+        "name": "Desert Knights",
+        "arabicName": "فرسان الصحراء",
+        "color": "#3B82F6",
+        "players": [
+          {
+            "id": "p4",
+            "name": "Hamad Al Marri",
+            "number": 9
+          },
+          {
+            "id": "p5",
+            "name": "Sultan Al Marri",
+            "number": 8
+          },
+          {
+            "id": "p6",
+            "name": "Fatima Al Marri",
+            "number": 4
+          }
+        ]
+      },
+      "scores": {
+        "team-falcons": 0,
+        "team-knights": 0
+      },
+      "status": "scheduled",
+      "createdAt": "2026-10-29T11:41:20.292Z"
+    },
+    {
+      "id": "match-1793274255131-anlf",
+      "tournamentId": "tourn-1793274125664",
+      "tournamentName": "Emirati Family Arena Cup 2026",
+      "gameId": "football",
+      "teamA": {
+        "id": "team-1793274125664-0",
+        "name": "Al Saqr (Falcons)",
+        "arabicName": "صقور الفريج",
+        "color": "#D4AF37",
+        "players": [
+          {
+            "id": "p-1793274125664-0-0",
+            "name": "Mariam",
+            "number": 1
+          }
+        ]
+      },
+      "teamB": {
+        "id": "team-1793274125664-1",
+        "name": "Al Fursan (Knights)",
+        "arabicName": "فرسان الفريج",
+        "color": "#3B82F6",
+        "players": [
+          {
+            "id": "p-1793274125664-1-0",
+            "name": "Hamad (Captain)",
+            "number": 9
+          },
+          {
+            "id": "p-1793274125664-1-1",
+            "name": "Sultan",
+            "number": 8
+          },
+          {
+            "id": "p-1793274125664-1-2",
+            "name": "Fatima",
+            "number": 4
+          }
+        ]
+      },
+      "scores": {
+        "team-1793274125664-0": 0,
+        "team-1793274125664-1": 0
+      },
+      "status": "completed",
+      "createdAt": "2026-10-29T11:44:15.131Z",
+      "videoId": "vid-1793274287808",
+      "videoUrl": "/uploads/match_video_1793274287792_46yfyj.webm",
+      "analysisJobId": "job-1793274287809",
+      "completedAt": "2026-10-29T11:45:10.390Z",
+      "durationSeconds": 60
+    }
+  ],
+  "videoAssets": [
+    {
+      "id": "vid-1793274287808",
+      "matchId": "match-1793274255131-anlf",
+      "filename": "match_video_1793274287792_46yfyj.webm",
+      "originalName": "fareeg_football_1793274286664.webm",
+      "fileSizeBytes": 1241217,
+      "mimeType": "text/plain",
+      "url": "/uploads/match_video_1793274287792_46yfyj.webm",
+      "createdAt": "2026-10-29T11:44:47.808Z",
+      "consentConfirmed": true
+    }
+  ],
+  "analysisJobs": [
+    {
+      "id": "job-1793274287809",
+      "matchId": "match-1793274255131-anlf",
+      "videoAssetId": "vid-1793274287808",
+      "videoUrl": "/uploads/match_video_1793274287792_46yfyj.webm",
+      "gameId": "football",
+      "status": "completed",
+      "progressPercent": 100,
+      "statusMessage": "External vision detector finished processing.",
+      "cvServiceConnected": true,
+      "cvServiceMode": "python_external",
+      "eventsProposedCount": 0,
+      "createdAt": "2026-10-29T11:44:47.809Z",
+      "updatedAt": "2026-10-29T11:44:51.432Z",
+      "completedAt": "2026-10-29T11:45:10.390Z"
+    }
+  ],
+  "events": [
+    {
+      "id": "evt-seed-1",
+      "matchId": "match-demo-001",
+      "gameId": "al_teela",
+      "eventType": "marble_knockout",
+      "eventLabel": "Marble Knockout",
+      "teamId": "team-falcons",
+      "teamName": "Al Saqr Falcons",
+      "playerName": "Rashid Al Nuaimi",
+      "timestampSeconds": 24,
+      "confidence": 0.94,
+      "reviewStatus": "confirmed",
+      "source": "host_confirmed",
+      "pointsAwarded": 1,
+      "createdAt": "2026-10-29T10:37:13.187Z"
+    },
+    {
+      "id": "evt-seed-2",
+      "matchId": "match-demo-001",
+      "gameId": "al_teela",
+      "eventType": "target_hole_entry",
+      "eventLabel": "Khoor (Center Hole Entry)",
+      "teamId": "team-falcons",
+      "teamName": "Al Saqr Falcons",
+      "playerName": "Zayed Al Nuaimi",
+      "timestampSeconds": 68,
+      "confidence": 0.88,
+      "reviewStatus": "confirmed",
+      "source": "host_confirmed",
+      "pointsAwarded": 2,
+      "createdAt": "2026-10-29T10:42:13.187Z"
+    },
+    {
+      "id": "evt-seed-3",
+      "matchId": "match-demo-001",
+      "gameId": "al_teela",
+      "eventType": "marble_knockout",
+      "eventLabel": "Marble Knockout",
+      "teamId": "team-knights",
+      "teamName": "Desert Knights",
+      "playerName": "Hamad Al Marri",
+      "timestampSeconds": 112,
+      "confidence": 0.91,
+      "reviewStatus": "confirmed",
+      "source": "host_confirmed",
+      "pointsAwarded": 1,
+      "createdAt": "2026-10-29T10:53:53.187Z"
+    }
+  ],
+  "cvServiceConfig": {
+    "externalServiceUrl": "http://localhost:8000",
+    "isConnected": true
+  },
+  "customGames": [
+    {
+      "id": "ai_1793274571812_1ykli",
+      "name": "Slide three wooden blocks across",
+      "arabicName": "تحدي Slide three wooden blocks across التراثي",
+      "tagline": "An AI-refereed family contest combining agility, strategy, and precision",
+      "category": "dexterity",
+      "description": "A dynamic family game based on player challenge: Slide three wooden blocks across a sand line into marked squares. Supervised by FAREEG AI's Universal Computer Vision Referee.",
+      "culturalBackground": "Created in the spirit of the Emirati Fareeg (neighborhood), where families invent joyful challenges using local surroundings.",
+      "culturalConnections": "Carries the communal play traditions of Al Teela and Al Laqaf into modern family invention.",
+      "playersPerTeam": "2 to 4 players",
+      "durationMinutes": 10,
+      "equipmentNeeded": "Standard household markers or soft play items",
+      "locationType": "indoor",
+      "energyLevel": "dexterity",
+      "recommendedAngle": "Elevated 45-degree angle capturing full playing boundary and player hands",
+      "cameraSetupInstructions": "Place a smartphone or camera on a stable tripod at eye level (1.5m) angled toward the designated active play square.",
+      "aiDetectorGuidance": "Tracks target object displacement, hand touch sequences, and boundary crossing markers.",
+      "rulesPlaceholderNote": "Host referee can customize point allocations in the Match Setup review screen.",
+      "scoringRules": [
+        {
+          "eventType": "primary_action_score",
+          "label": "Primary Objective Scored",
+          "points": 1,
+          "description": "Clean execution of the primary game goal."
+        },
+        {
+          "eventType": "bonus_mastery",
+          "label": "Skill Mastery Bonus",
+          "points": 2,
+          "description": "Advanced trick, rapid sequence, or high-difficulty placement."
+        },
+        {
+          "eventType": "boundary_fault",
+          "label": "Boundary Invalidation (Fault)",
+          "points": 0,
+          "description": "Stepping outside zone or dropping equipment."
+        }
+      ],
+      "potentialEvents": [
+        "primary_action_score",
+        "bonus_mastery",
+        "boundary_fault"
+      ],
+      "isCustomCreated": true,
+      "aiRefereePrompt": "Slide three wooden blocks across a sand line into marked squares"
+    }
+  ]
+}
