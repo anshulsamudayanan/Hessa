@@ -1,6 +1,5 @@
 {
-  "name": "FAREEG AI — AI-Powered Emirati Traditional Games Arena",
-  "description": "FAREEG AI is an AI-powered tournament arena for Emirati traditional games and football, bringing families together with camera recording, event review, and tournament scoring.",
-  "requestFramePermissions": ["camera", "microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "Hessa — Explore the world. Play its games.",
+  "description": "A world-map cultural games app where the phone is the referee: camera and microphone judging run on-device for hand cricket, mini football, streetball, Qif and Al Dama.",
+  "requestFramePermissions": ["camera", "microphone"]
 }

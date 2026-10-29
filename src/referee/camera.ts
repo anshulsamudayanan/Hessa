@@ -1,0 +1,123 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+/**
+ * Camera manager: permissions, live stream and lifecycle. Owns the MediaStream so
+ * every exit path (unmount, stop button, tab hidden for good) releases the camera.
+ */
+
+export type CameraErrorKind = 'insecure' | 'unsupported' | 'denied' | 'not-found' | 'in-use' | 'unknown';
+
+export interface CameraError {
+  kind: CameraErrorKind;
+  message: string;
+}
+
+export type CameraStatus = 'idle' | 'starting' | 'live' | 'error';
+export type Facing = 'user' | 'environment';
+
+export function describeCameraError(err: unknown): CameraError {
+  const name = (err as DOMException)?.name;
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return {
+        kind: 'denied',
+        message:
+          'Camera access was blocked. Allow the camera for this site in your browser settings (the lock or “aA” icon next to the address), then try again.',
+      };
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return { kind: 'not-found', message: 'No camera was found on this device.' };
+    case 'NotReadableError':
+    case 'AbortError':
+      return { kind: 'in-use', message: 'The camera is busy. Close other apps or tabs using it and try again.' };
+    default:
+      return { kind: 'unknown', message: `The camera could not start${name ? ` (${name})` : ''}.` };
+  }
+}
+
+export function checkCameraSupport(): CameraError | null {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return {
+      kind: 'insecure',
+      message: 'Camera access needs a secure connection. Open Hessa over https:// (or on localhost).',
+    };
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return { kind: 'unsupported', message: 'This browser can’t use the camera. Try a recent Chrome, Safari, Edge or Firefox.' };
+  }
+  return null;
+}
+
+export type Camera = ReturnType<typeof useCamera>;
+
+export function useCamera(defaultFacing: Facing = 'environment') {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [status, setStatus] = useState<CameraStatus>('idle');
+  const [error, setError] = useState<CameraError | null>(null);
+  const [facing, setFacing] = useState<Facing>(defaultFacing);
+  const [hasMultiple, setHasMultiple] = useState(false);
+
+  const stop = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setStatus('idle');
+  }, []);
+
+  const start = useCallback(
+    async (wantFacing: Facing = facing) => {
+      const unsupported = checkCameraSupport();
+      if (unsupported) {
+        setError(unsupported);
+        setStatus('error');
+        return;
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      setStatus('starting');
+      setError(null);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: wantFacing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        });
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+          await video.play().catch(() => {});
+        }
+        const settings = stream.getVideoTracks()[0]?.getSettings();
+        setFacing((settings?.facingMode as Facing) ?? wantFacing);
+        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        setHasMultiple(devices.filter((d) => d.kind === 'videoinput').length > 1);
+        setStatus('live');
+      } catch (err) {
+        setError(describeCameraError(err));
+        setStatus('error');
+      }
+    },
+    [facing],
+  );
+
+  const flip = useCallback(() => start(facing === 'user' ? 'environment' : 'user'), [facing, start]);
+
+  /** Callback ref: lets the live stream follow the <video> across setup → match screens. */
+  const bindVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+      el.srcObject = streamRef.current;
+      el.muted = true;
+      el.playsInline = true;
+      el.play().catch(() => {});
+    }
+  }, []);
+
+  // Always release the camera when the component using it goes away.
+  useEffect(() => stop, [stop]);
+
+  return { videoRef, bindVideo, status, error, facing, hasMultiple, start, stop, flip, mirrored: facing === 'user' };
+}
